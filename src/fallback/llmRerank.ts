@@ -1,5 +1,6 @@
 import type { LLMClient } from "../trainer/llmExtractor.js";
 import type { SessionSearchHit } from "./sessionSearch.js";
+import { cacheKeyForRerank, rerankCache } from "../cache/memoryCaches.js";
 
 export interface RerankOptions {
   client: LLMClient;
@@ -79,11 +80,17 @@ export async function rerankWithLLM(
   const maxCandidates = opts.maxCandidates ?? DEFAULT_MAX_CANDIDATES;
   const truncated = hits.slice(0, maxCandidates);
 
+  const cacheKey = cacheKeyForRerank(query, truncated);
+  const cached = rerankCache.get(cacheKey);
+  if (cached) return cached;
+
   const prompt = buildRerankPrompt(query, truncated);
 
   try {
     const response = await opts.client.complete(prompt);
-    return parseRerankResponse(response, truncated.length);
+    const results = parseRerankResponse(response, truncated.length);
+    if (results) rerankCache.set(cacheKey, results);
+    return results;
   } catch {
     return null;
   }

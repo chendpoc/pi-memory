@@ -1,4 +1,5 @@
 import type { QueryIntent, QueryMode } from "../types.js";
+import { cacheKeyForIntents, intentCache } from "../cache/memoryCaches.js";
 
 export const MEMORY_HELPER_TOOL_NAME = "compile_memory_intents";
 export const MEMORY_HELPER_MAX_INPUT_RUNES = 500;
@@ -643,10 +644,15 @@ export async function detectMemoryIntents(
   if (looksLikeTaskText(helperInput)) return [];
   if (!options.forceHelper && !looksMemoryRelevant(helperInput)) return [];
 
+  const cacheKey = cacheKeyForIntents(helperInput);
+  const cached = intentCache.get(cacheKey);
+  if (cached) return cached;
+
   try {
     const out = await helper.compileIntents(helperInput, options.signal);
     if (!out.should_recall) return [];
     const intents = sanitizeMemoryIntents(out.intents ?? []).slice(0, 3);
+    if (intents.length > 0) intentCache.set(cacheKey, intents);
     return intents;
   } catch {
     return [];

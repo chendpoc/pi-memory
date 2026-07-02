@@ -1,7 +1,8 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import { rerankWithLLM, type RerankOptions } from "../src/fallback/llmRerank.js";
 import type { SessionSearchHit } from "../src/fallback/sessionSearch.js";
 import type { LLMClient } from "../src/trainer/llmExtractor.js";
+import { rerankCache, invalidateMemoryCaches, cacheKeyForRerank } from "../src/cache/memoryCaches.js";
 
 function makeHit(overrides: Partial<SessionSearchHit> = {}): SessionSearchHit {
   return {
@@ -18,6 +19,10 @@ function makeHit(overrides: Partial<SessionSearchHit> = {}): SessionSearchHit {
 function mockClient(response: string): LLMClient {
   return { complete: async () => response };
 }
+
+beforeEach(() => {
+  invalidateMemoryCaches();
+});
 
 describe("rerankWithLLM", () => {
   it("returns null for empty hits", async () => {
@@ -109,6 +114,53 @@ describe("rerankWithLLM", () => {
 
     expect(result).not.toBeNull();
     expect(result![0]!.score).toBe(8);
+  });
+
+  it("returns cached result without calling LLM again", async () => {
+    const hits = [makeHit()];
+    let callCount = 0;
+    const client: LLMClient = {
+      complete: async () => {
+        callCount++;
+        return JSON.stringify([{ index: 0, score: 7, summary: "cached" }]);
+      },
+    };
+    const opts: RerankOptions = { client };
+
+    const first = await rerankWithLLM("cache-query", hits, opts);
+    const second = await rerankWithLLM("cache-query", hits, opts);
+
+    expect(first).toEqual(second);
+    expect(callCount).toBe(1); // LLM called only once
+  });
+
+  it("bypasses cache for different hits", async () => {
+    const hit1 = makeHit({ session_id: "s1" });
+    const hit2 = makeHit({ session_id: "s2" });
+    let callCount = 0;
+    const client: LLMClient = {
+      complete: async () => {
+        callCount++;
+        return JSON.stringify([{ index: 0, score: 5, summary: "result" }]);
+      },
+    };
+    await rerankWithLLM("q", [hit1], { client });
+    await rerankWithLLM("q", [hit2], { client });
+    expect(callCount).toBe(2); // Different hits → different cache keys
+  });
+
+  it("pre-populating cache prevents LLM call", async () => {
+    const hits = [makeHit()];
+    const cacheKey = cacheKeyForRerank("pre-pop", hits);
+    const preloaded = [{ index: 0, score: 9, summary: "pre-loaded" }];
+    rerankCache.set(cacheKey, preloaded);
+
+    let called = false;
+    const client: LLMClient = { complete: async () => { called = true; return "[]"; } };
+
+    const result = await rerankWithLLM("pre-pop", hits, { client });
+    expect(result).toEqual(preloaded);
+    expect(called).toBe(false);
   });
 
   it("respects maxCandidates option", async () => {

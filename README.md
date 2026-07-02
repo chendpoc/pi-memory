@@ -264,7 +264,7 @@ npm now recommends **Trusted Publishing** over Granular "bypass 2FA" tokens for 
 1. Open `https://www.npmjs.com/package/@chendpoc/pi-memory/access` (after first publish)
 2. **Trusted Publisher** → GitHub Actions
 3. Set exactly:
-   - Organization or user: `Facefall`
+   - Organization or user: `chendpoc`
    - Repository: `pi-memory`
    - Workflow filename: `tag-release.yml`
    - Environment: *(leave blank unless you add a GitHub Environment)*

@@ -54,9 +54,9 @@
   "author": "chendpoc",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Facefall/pi-memory.git"
+    "url": "https://github.com/chendpoc/pi-memory.git"
   },
-  "homepage": "https://github.com/Facefall/pi-memory#readme",
+  "homepage": "https://github.com/chendpoc/pi-memory#readme",
   "pi": {
     "extensions": [
       "./src/pi-extension.ts"

@@ -23,7 +23,14 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "rebuild:native": "pnpm rebuild better-sqlite3"
+    "rebuild:native": "pnpm rebuild better-sqlite3",
+    "changeset": "changeset",
+    "version-packages": "changeset version",
+    "release": "pnpm build && changeset publish"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
   },
   "files": [
     "dist",
@@ -47,9 +54,9 @@
   "author": "chendpoc",
   "repository": {
     "type": "git",
-    "url": "https://github.com/chendpoc/pi-memory.git"
+    "url": "https://github.com/Facefall/pi-memory.git"
   },
-  "homepage": "https://github.com/chendpoc/pi-memory#readme",
+  "homepage": "https://github.com/Facefall/pi-memory#readme",
   "pi": {
     "extensions": [
       "./src/pi-extension.ts"
@@ -65,6 +72,8 @@
     "better-sqlite3": "^12.10.0"
   },
   "devDependencies": {
+    "@changesets/changelog-github": "^0.5.1",
+    "@changesets/cli": "^2.29.5",
     "@earendil-works/pi-agent-core": "*",
     "@earendil-works/pi-ai": "*",
     "@earendil-works/pi-coding-agent": "*",

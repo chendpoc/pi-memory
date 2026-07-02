@@ -239,13 +239,24 @@ These are provided by the Pi host and should not be bundled:
 
 - `better-sqlite3` --- enables FTS5 session search index (graceful degradation if absent)
 
+## Releasing
+
+This repo uses [Changesets](https://github.com/changesets/changesets) for semver bumps and `CHANGELOG.md`.
+
+1. After a feature/fix PR, add a changeset: `pnpm changeset`
+2. Merge to `main` — GitHub Actions opens a **Version Packages** PR
+3. Merge that PR — CI publishes `@chendpoc/pi-memory` to npm and creates a GitHub Release
+
+Set `NPM_TOKEN` in the repo secrets (npm granular token with publish access to `@chendpoc`).
+
 ## Development
 
 ```bash
-npm install
-npm run build
-npm test          # 129 tests
-npm run typecheck
+pnpm install
+pnpm build
+pnpm test
+pnpm typecheck
+pnpm changeset    # before opening a release PR
 ```
 
 ## License

@@ -122,5 +122,25 @@ export function resolveHelperModelSpec(
   return settingsHelperModel;
 }
 
+/** Write memory settings back to disk (preserves unknown fields). */
+export function saveMemorySettings(
+  updates: Partial<MemorySettingsFile>,
+  configPath = defaultMemoryConfigPath(),
+): void {
+  let existing: Record<string, unknown> = {};
+  try {
+    const raw = fs.readFileSync(configPath, "utf8");
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      existing = parsed as Record<string, unknown>;
+    }
+  } catch { /* start fresh */ }
+
+  const merged = { ...existing, ...updates };
+  const dir = path.dirname(configPath);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(configPath, JSON.stringify(merged, null, 2) + "\n", "utf8");
+}
+
 export { defaultMemoryConfig };
 export type { ExtractorType, MemoryProvider, TrainerConfig };

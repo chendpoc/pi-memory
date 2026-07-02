@@ -27,6 +27,7 @@ import type { MemoryConfig } from "./config.js";
 import {
   loadMemorySettings,
   resolveHelperModelSpec,
+  saveMemorySettings,
 } from "./settings.js";
 import { createFallbackQuery } from "./fallback/index.js";
 import type { RerankOptions } from "./fallback/llmRerank.js";
@@ -275,7 +276,7 @@ export default function piMemoryExtension(pi: ExtensionAPI): void {
   });
 
   pi.registerCommand("memory", {
-    description: "Show pi-memory sidecar status and bundle info",
+    description: "Show pi-memory status and bundle info",
     handler: async (_args, ctx) => {
       const service = sharedService;
       if (!service) {
@@ -283,6 +284,108 @@ export default function piMemoryExtension(pi: ExtensionAPI): void {
         return;
       }
       ctx.ui.notify(formatMemoryStatus(service), "info");
+    },
+  });
+
+  pi.registerCommand("memory-setup", {
+    description: "Configure pi-memory LLM backend (Ollama model, remote API, or disable)",
+    handler: async (_args, ctx) => {
+      const backend = await ctx.ui.select("Select LLM backend for pi-memory:", [
+        "ollama  — Local Ollama (recommended for edge)",
+        "remote  — Remote API (deepseek-v4-flash)",
+        "none    — No LLM (regex only, zero dependencies)",
+      ]);
+      if (!backend) return;
+
+      const choice = backend.split(/\s/)[0]!;
+
+      if (choice === "none") {
+        saveMemorySettings({ helperModel: undefined, ollama: undefined, vllm: undefined });
+        settingsOllama = null;
+        settingsVllm = null;
+        settingsHelperModel = undefined;
+        sharedHelper = null;
+        sharedLLMClient = null;
+        ctx.ui.notify("LLM disabled. Memory will use regex-only intent detection.", "info");
+        return;
+      }
+
+      if (choice === "remote") {
+        const model = await ctx.ui.input(
+          "Remote model (provider/model):",
+          "deepseek/deepseek-v4-flash",
+        );
+        if (!model?.trim()) return;
+        saveMemorySettings({
+          helperModel: model.trim(),
+          ollama: undefined,
+          vllm: undefined,
+        });
+        settingsOllama = null;
+        settingsVllm = null;
+        settingsHelperModel = model.trim();
+        try {
+          await refreshMemoryHelper(ctx, pi);
+          ctx.ui.notify(`Remote LLM set to: ${model.trim()}`, "info");
+        } catch {
+          ctx.ui.notify(`Model set but auth failed. Check API key for ${model.trim()}.`, "warning");
+        }
+        return;
+      }
+
+      if (choice === "ollama") {
+        const baseUrl = await ctx.ui.input("Ollama base URL:", "http://localhost:11434");
+        if (!baseUrl?.trim()) return;
+
+        const healthy = await ollamaHealthCheck(baseUrl.trim());
+        if (!healthy) {
+          const proceed = await ctx.ui.confirm(
+            "Ollama not reachable",
+            `Cannot connect to ${baseUrl.trim()}. Save config anyway?`,
+          );
+          if (!proceed) return;
+        }
+
+        const model = await ctx.ui.select("Select Ollama model:", [
+          "qwen3.5:0.8b  — 500MB, 2GB RAM (minimal edge)",
+          "qwen3.5:2b    — 1.5GB, 4GB RAM (recommended)",
+          "qwen3.5:4b    — 2.5GB, 8GB RAM (stronger)",
+          "qwen3.5:9b    — 5GB, 16GB RAM (desktop)",
+          "custom        — Enter model name manually",
+        ]);
+        if (!model) return;
+
+        let modelName: string;
+        if (model.startsWith("custom")) {
+          const custom = await ctx.ui.input("Ollama model name:", "qwen3.5:2b");
+          if (!custom?.trim()) return;
+          modelName = custom.trim();
+        } else {
+          modelName = model.split(/\s/)[0]!;
+        }
+
+        const ollamaCfg = { baseUrl: baseUrl.trim(), model: modelName };
+        saveMemorySettings({
+          helperModel: `ollama/${modelName}`,
+          ollama: ollamaCfg,
+          vllm: undefined,
+        });
+        settingsOllama = ollamaCfg;
+        settingsVllm = null;
+        settingsHelperModel = `ollama/${modelName}`;
+
+        try {
+          await refreshMemoryHelper(ctx, pi);
+          ctx.ui.notify(
+            `Ollama configured: ${modelName} at ${baseUrl.trim()}\n` +
+            (sharedHelper ? "Helper LLM active." : "Ollama offline — using regex fallback."),
+            sharedHelper ? "info" : "warning",
+          );
+        } catch {
+          ctx.ui.notify(`Config saved. Ollama offline — will retry on next session start.`, "warning");
+        }
+        return;
+      }
     },
   });
 

@@ -55,7 +55,7 @@ export class MemoryRecallTool {
     };
   }
 
-  async run(argsJson: string, signal?: AbortSignal): Promise<ToolResult> {
+  async run(argsJson: string, signal?: AbortSignal, onProgress?: (msg: string) => void): Promise<ToolResult> {
     const args = parseArgs(argsJson);
     if ("error" in args) {
       return { content: args.error, isError: true };
@@ -67,29 +67,53 @@ export class MemoryRecallTool {
       return { content: validation, isError: true };
     }
 
-    return this.runIntent(intent, signal);
+    return this.runIntent(intent, signal, onProgress);
   }
 
-  async runIntent(intent: QueryIntent, signal?: AbortSignal): Promise<ToolResult> {
+  async runIntent(intent: QueryIntent, signal?: AbortSignal, onProgress?: (msg: string) => void): Promise<ToolResult> {
     if (this.service.status() !== "ready") {
       return this.fallbackResult(intent, "service_unavailable", "fallback");
     }
 
-    let result = await this.service.query(intent, signal);
+    // Emit a progress message if the sidecar takes longer than 500 ms.
+    let progressTimer: ReturnType<typeof setTimeout> | null = null;
+    if (onProgress) {
+      progressTimer = setTimeout(() => {
+        onProgress("Querying episodic memory…");
+      }, 500);
+    }
+
+    let result;
+    try {
+      result = await this.service.query(intent, signal);
+    } finally {
+      if (progressTimer != null) clearTimeout(progressTimer);
+    }
+
     if (result.transportError || result.errorClass === "unavailable") {
       return this.fallbackResult(intent, "service_unavailable", "fallback");
     }
 
     if (result.errorClass === "retryable") {
-      await sleep(500, signal);
-      result = await this.service.query(intent, signal);
+      let retryTimer: ReturnType<typeof setTimeout> | null = null;
+      if (onProgress) {
+        retryTimer = setTimeout(() => onProgress("Retrying memory query…"), 500);
+      }
+      let retryResult;
+      try {
+        await sleep(500, signal);
+        retryResult = await this.service.query(intent, signal);
+      } finally {
+        if (retryTimer != null) clearTimeout(retryTimer);
+      }
       if (
-        result.transportError ||
-        result.errorClass === "unavailable" ||
-        result.errorClass === "retryable"
+        retryResult.transportError ||
+        retryResult.errorClass === "unavailable" ||
+        retryResult.errorClass === "retryable"
       ) {
         return this.fallbackResult(intent, "retryable_failed", "fallback_after_retry");
       }
+      result = retryResult;
     }
 
     if (result.errorClass === "permanent") {

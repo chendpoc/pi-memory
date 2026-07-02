@@ -78,7 +78,18 @@ let settingsOllama: OllamaConfig | null = null;
 let settingsVllm: OpenAICompatConfig | null = null;
 let sharedHelper: MemoryHelperLLM | null = null;
 let sharedLLMClient: LLMClient | null = null;
-let preflightCache: { userText: string; privateContext: string } | null = null;
+/**
+ * Per-turn preflight result, set by before_agent_start and consumed by context.
+ * userPayload = raw event.prompt (no host scaffolding).
+ * privateContext = <private_memory> block to inject.
+ */
+let turnPreflight: { userPayload: string; privateContext: string } | null = null;
+
+/**
+ * True on the very first turn of a session; used to force the intent helper
+ * (bypassing the lexical gate) so the first message always checks memory.
+ */
+let isFirstTurn = false;
 
 export function getSharedMemoryService(): MemoryService | null {
   return sharedService;
@@ -172,7 +183,8 @@ export default function piMemoryExtension(pi: ExtensionAPI): void {
     settingsOllama = loaded.ollama;
     settingsVllm = loaded.vllm;
     sessionCfg = cfg;
-    preflightCache = null;
+    turnPreflight = null;
+    isFirstTurn = true;
     sharedHelper = null;
 
     if (cfg.provider === "disabled") return;
@@ -203,7 +215,8 @@ export default function piMemoryExtension(pi: ExtensionAPI): void {
     settingsVllm = null;
     sharedHelper = null;
     sharedLLMClient = null;
-    preflightCache = null;
+    turnPreflight = null;
+    isFirstTurn = false;
   });
 
   pi.on("model_select", async (_event, ctx) => {
@@ -211,7 +224,44 @@ export default function piMemoryExtension(pi: ExtensionAPI): void {
   });
 
   pi.on("agent_start", () => {
-    preflightCache = null;
+    turnPreflight = null;
+  });
+
+  pi.on("before_agent_start", async (event, ctx) => {
+    const service = sharedService;
+    const cfg = sessionCfg;
+    if (!service || !cfg || cfg.provider === "disabled") return;
+
+    const userPayload = String(((event as unknown) as { prompt?: string }).prompt ?? "").trim();
+    if (!userPayload) return;
+
+    const forceHelper = isFirstTurn;
+    isFirstTurn = false;
+
+    const workingUi = ctx.hasUI
+      ? {
+          show: (msg: string) => ctx.ui.setWorkingMessage(msg),
+          update: (msg: string) => ctx.ui.setWorkingMessage(msg),
+          clear: () => ctx.ui.setWorkingMessage(),
+        }
+      : null;
+
+    try {
+      workingUi?.show("Recalling memory…");
+      const result = await runMemoryPreflight(userPayload, service, {
+        helper: sharedHelper,
+        forceHelper,
+        fallback,
+        signal: ctx.signal,
+        rerankOpts: getRerankOpts(),
+        onProgress: workingUi?.update,
+      });
+      turnPreflight = result?.privateContext
+        ? { userPayload, privateContext: result.privateContext }
+        : null;
+    } finally {
+      workingUi?.clear();
+    }
   });
 
   const initialSettings = loadMemorySettings();
@@ -243,17 +293,24 @@ export default function piMemoryExtension(pi: ExtensionAPI): void {
     promptSnippet: MEMORY_RECALL_PROMPT_SNIPPET,
     promptGuidelines: [...MEMORY_RECALL_PROMPT_GUIDELINES],
     parameters: MemoryRecallParams,
-    async execute(_toolCallId, params, signal) {
+    async execute(_toolCallId, params, signal, onUpdate) {
       const service = sharedService;
       if (!service) {
-      return {
-        content: [{ type: "text", text: "Memory service not started." }],
-        details: { truncated: false },
-        isError: true,
-      };
+        return {
+          content: [{ type: "text", text: "Memory service not started." }],
+          details: { truncated: false },
+          isError: true,
+        };
       }
+      const onProgress = onUpdate
+        ? (msg: string) =>
+            (onUpdate as (u: { content: unknown[]; details: Record<string, unknown> }) => void)?.({
+              content: [{ type: "text", text: msg }],
+              details: { phase: "querying" },
+            })
+        : undefined;
       const tool = createMemoryRecallTool(service, fallback, getRerankOpts());
-      const result = await tool.run(JSON.stringify(params), signal);
+      const result = await tool.run(JSON.stringify(params), signal, onProgress);
       const truncated = truncateHead(result.content, {
         maxLines: RECALL_MAX_LINES,
         maxBytes: RECALL_MAX_BYTES,
@@ -299,15 +356,22 @@ export default function piMemoryExtension(pi: ExtensionAPI): void {
     const userIndex = findLastUserMessageIndex(event.messages);
     if (userIndex < 0) return;
 
-    const userText = getUserMessageText(event.messages[userIndex]!);
-    if (!userText?.trim()) return;
+    const scaffolded = getUserMessageText(event.messages[userIndex]!);
+    if (!scaffolded?.trim()) return;
 
     let privateContext: string | undefined;
-    if (preflightCache?.userText === userText) {
-      privateContext = preflightCache.privateContext;
+    let userPayload: string;
+
+    if (turnPreflight?.privateContext) {
+      // Happy path: before_agent_start already ran preflight.
+      // userPayload is the raw prompt; scaffolded may have host-added prefix.
+      privateContext = turnPreflight.privateContext;
+      userPayload = turnPreflight.userPayload;
     } else {
+      // Fallback: before_agent_start didn't fire (e.g. first context after
+      // session restore). Run preflight inline; no scaffold separation.
       const userTurnCount = event.messages.filter((m) => m.role === "user").length;
-      const preflight = await runMemoryPreflight(userText, service, {
+      const preflight = await runMemoryPreflight(scaffolded, service, {
         helper: sharedHelper,
         forceHelper: userTurnCount === 1,
         fallback,
@@ -316,12 +380,14 @@ export default function piMemoryExtension(pi: ExtensionAPI): void {
       });
       if (!preflight?.privateContext) return;
       privateContext = preflight.privateContext;
-      preflightCache = { userText, privateContext };
+      userPayload = scaffolded;
+      // Cache so tool-call follow-up context calls reuse without re-running.
+      turnPreflight = { userPayload: scaffolded, privateContext };
     }
 
     const injectedText = injectPrivateMemoryContext(
-      userText,
-      userText,
+      scaffolded,
+      userPayload,
       privateContext,
     );
 

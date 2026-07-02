@@ -10,6 +10,11 @@ import {
 } from "./detectIntents.js";
 import { renderFallbackPrivateMemory, renderPrivateMemoryContext, type PreflightQueryResult } from "./render.js";
 import { injectPrivateMemoryContext } from "./strip.js";
+import {
+  deleteNegativeCache,
+  isNegativeCached,
+  setNegativeCache,
+} from "../cache/memoryCaches.js";
 
 export type { MemoryHelperLLM };
 
@@ -23,6 +28,19 @@ export interface MemoryPreflightOptions extends DetectIntentsOptions {
   fallback?: FallbackQuery | null;
   /** LLM rerank options for fallback search results. */
   rerankOpts?: RerankOptions | null;
+  /**
+   * Optional progress callback emitted at key stages (intent detection,
+   * graph query, FTS search, rerank). Wire to ctx.ui.setWorkingMessage for
+   * visible feedback during slow sidecar queries.
+   */
+  onProgress?: (message: string) => void;
+  /**
+   * When the graph is ready but returns no usable results, cascade to a
+   * semantic fallback: broader FTS recall + single LLM rerank.
+   * Requires both `fallback` and `rerankOpts` to be set.
+   * Defaults to true — set to false to disable the cascade.
+   */
+  semanticFallback?: boolean;
 }
 
 export interface MemoryPreflightResult {
@@ -55,21 +73,40 @@ export async function runMemoryPreflight(
   service: MemoryService,
   options: MemoryPreflightOptions = {},
 ): Promise<MemoryPreflightResult | null> {
+  if (isNegativeCached(query)) return null;
+
   try {
     if (service.status() !== "ready") {
-      if (!options.fallback) return null;
+      if (!options.fallback) {
+        setNegativeCache(query);
+        return null;
+      }
+      options.onProgress?.("Searching session history…");
       const privateContext = await renderFallbackPrivateMemory(query, options.fallback, {
         rerankOpts: options.rerankOpts,
+        onProgress: options.onProgress,
       });
-      if (!privateContext.trim()) return null;
+      if (!privateContext.trim()) {
+        setNegativeCache(query);
+        return null;
+      }
+      deleteNegativeCache(query);
       return { privateContext };
     }
 
+    options.onProgress?.("Detecting memory intents…");
     const intents = await detectMemoryIntents(query, options.helper ?? null, {
       forceHelper: options.forceHelper,
       signal: options.signal,
     });
-    if (intents.length === 0) return null;
+    if (intents.length === 0) {
+      setNegativeCache(query);
+      return null;
+    }
+
+    if (service.getStatus().mode === "sidecar") {
+      options.onProgress?.("Querying memory graph…");
+    }
 
     const timeout = AbortSignal.timeout(MEMORY_PREFLIGHT_QUERY_TIMEOUT_MS);
     const combined = options.signal
@@ -77,7 +114,10 @@ export async function runMemoryPreflight(
       : timeout;
 
     const results = await service.queryBatch(intents, combined);
-    if (timeout.aborted) return null;
+    if (timeout.aborted) {
+      setNegativeCache(query);
+      return null;
+    }
 
     const renderInput: PreflightQueryResult[] = results.map((r) => ({
       envelope: r.envelope,
@@ -85,10 +125,33 @@ export async function runMemoryPreflight(
     }));
 
     const privateContext = renderPrivateMemoryContext(intents, renderInput);
-    if (!privateContext.trim()) return null;
+    if (!privateContext.trim()) {
+      // Graph was ready but returned no usable results.
+      // Cascade to semantic fallback (broader FTS + single LLM rerank) when
+      // both a fallback store and a rerank client are available.
+      if (
+        options.semanticFallback !== false &&
+        options.fallback &&
+        options.rerankOpts
+      ) {
+        options.onProgress?.("Searching session history…");
+        const semanticCtx = await renderFallbackPrivateMemory(query, options.fallback, {
+          rerankOpts: options.rerankOpts,
+          onProgress: options.onProgress,
+        });
+        if (semanticCtx.trim()) {
+          deleteNegativeCache(query);
+          return { privateContext: semanticCtx };
+        }
+      }
+      setNegativeCache(query);
+      return null;
+    }
 
+    deleteNegativeCache(query);
     return { privateContext };
   } catch {
+    setNegativeCache(query);
     return null;
   }
 }

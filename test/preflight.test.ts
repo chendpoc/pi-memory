@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, beforeEach } from "vitest";
 
 import {
   detectExactMemoryIntents,
@@ -7,7 +7,15 @@ import {
 } from "../src/preflight/detectIntents.js";
 import { runMemoryPreflight } from "../src/preflight/hook.js";
 import {
+  invalidateMemoryCaches,
+  isNegativeCached,
+  intentCache,
+  cacheKeyForIntents,
+} from "../src/cache/memoryCaches.js";
+import {
   PRIVATE_MEMORY_BODY_BYTE_CAP,
+  SEMANTIC_FALLBACK_CANDIDATES,
+  renderFallbackPrivateMemory,
   renderPrivateMemoryContext,
   truncatePrivateMemoryBody,
 } from "../src/preflight/render.js";
@@ -49,6 +57,10 @@ const fixtureEnvelope: ResponseEnvelope = {
   reason: "",
   latency_ms: 5,
 };
+
+beforeEach(() => {
+  invalidateMemoryCaches();
+});
 
 describe("detectExactMemoryIntents", () => {
   it("matches Chinese relationship question", () => {
@@ -192,6 +204,7 @@ describe("runMemoryPreflight", () => {
   it("returns private context when sidecar has data", async () => {
     const svc = {
       status: () => "ready" as ServiceStatus,
+      getStatus: () => ({ status: "ready", mode: "local_graph" }),
       async queryBatch(_intents: QueryIntent[]) {
         return [
           {
@@ -200,6 +213,7 @@ describe("runMemoryPreflight", () => {
           },
         ];
       },
+      async ensureFreshBundle() {},
     } as unknown as MemoryService;
     const r = await runMemoryPreflight("Alice与我的关系？", svc);
     expect(r?.privateContext).toContain("<private_memory>");
@@ -251,5 +265,251 @@ describe("runMemoryPreflight", () => {
     };
     const r = await runMemoryPreflight("random question about nothing", svc, { fallback });
     expect(r).toBeNull();
+  });
+});
+
+describe("runMemoryPreflight negative cache", () => {
+  function makeSvc(ready = true): MemoryService {
+    return {
+      status: () => (ready ? "ready" : "unavailable") as ServiceStatus,
+      getStatus: () => ({ status: ready ? "ready" : "unavailable", mode: ready ? "local_graph" : undefined }),
+      async queryBatch() { return []; },
+      async ensureFreshBundle() {},
+    } as unknown as MemoryService;
+  }
+
+  it("sets negative cache when no intents detected", async () => {
+    const svc = makeSvc();
+    const query = "fix the bug in file.ts";
+    await runMemoryPreflight(query, svc, { helper: null });
+    expect(isNegativeCached(query)).toBe(true);
+  });
+
+  it("returns null immediately for negative-cached query", async () => {
+    const svc = makeSvc();
+    const query = "generic question without entities xyz987";
+    let callCount = 0;
+    const helper: MemoryHelperLLM = {
+      async compileIntents() {
+        callCount++;
+        return { should_recall: false, intents: [] };
+      },
+    };
+    // First call: runs helper
+    await runMemoryPreflight(query, svc, { helper, forceHelper: true });
+    const firstCount = callCount;
+    // Second call: should hit negative cache, skip helper
+    await runMemoryPreflight(query, svc, { helper, forceHelper: true });
+    expect(callCount).toBe(firstCount); // helper not called again
+    expect(isNegativeCached(query)).toBe(true);
+  });
+
+  it("removes negative cache entry on successful preflight", async () => {
+    const svc = {
+      status: () => "ready" as ServiceStatus,
+      getStatus: () => ({ status: "ready", mode: "local_graph" }),
+      async queryBatch() {
+        return [{ envelope: fixtureEnvelope, errorClass: "ok" as ErrorClass }];
+      },
+      async ensureFreshBundle() {},
+    } as unknown as MemoryService;
+
+    const query = "Alice与我的关系？";
+    // Prime negative cache
+    isNegativeCached(query); // just checking it's initially false
+    // Successful run should clear any negative cache entry
+    const r = await runMemoryPreflight(query, svc);
+    expect(r?.privateContext).toContain("<private_memory>");
+    expect(isNegativeCached(query)).toBe(false);
+  });
+});
+
+describe("detectMemoryIntents intent cache", () => {
+  it("caches helper result and skips second LLM call", async () => {
+    let callCount = 0;
+    const helper: MemoryHelperLLM = {
+      async compileIntents() {
+        callCount++;
+        return {
+          should_recall: true,
+          intents: [
+            {
+              mode: "direct_relation",
+              anchor_mentions: ["Bob"],
+              evidence_budget: 5,
+              result_limit: 10,
+            },
+          ],
+        };
+      },
+    };
+
+    const query = "What does Bob work on?";
+    const first = await detectMemoryIntents(query, helper, { forceHelper: true });
+    const second = await detectMemoryIntents(query, helper, { forceHelper: true });
+
+    expect(first).toEqual(second);
+    expect(callCount).toBe(1);
+    expect(intentCache.get(cacheKeyForIntents(query))).toEqual(first);
+  });
+
+  it("does not cache empty results (should_recall: false)", async () => {
+    let callCount = 0;
+    const helper: MemoryHelperLLM = {
+      async compileIntents() {
+        callCount++;
+        return { should_recall: false, intents: [] };
+      },
+    };
+    const query = "unrelated task abc";
+    await detectMemoryIntents(query, helper, { forceHelper: true });
+    await detectMemoryIntents(query, helper, { forceHelper: true });
+    expect(callCount).toBe(2); // not cached
+  });
+});
+
+describe("renderFallbackPrivateMemory semantic mode", () => {
+  it("fetches SEMANTIC_FALLBACK_CANDIDATES hits when rerankOpts is provided", async () => {
+    let receivedLimit = 0;
+    const fallback = {
+      async sessionKeyword(_query: string, limit: number) {
+        receivedLimit = limit;
+        return [];
+      },
+      async memoryFileSnippet() { return ""; },
+    };
+    const rerankOpts = { client: { complete: async () => "[]" } };
+    await renderFallbackPrivateMemory("query", fallback, { rerankOpts });
+    expect(receivedLimit).toBe(SEMANTIC_FALLBACK_CANDIDATES);
+  });
+
+  it("fetches only 5 hits without rerankOpts (keyword mode)", async () => {
+    let receivedLimit = 0;
+    const fallback = {
+      async sessionKeyword(_query: string, limit: number) {
+        receivedLimit = limit;
+        return [];
+      },
+      async memoryFileSnippet() { return ""; },
+    };
+    await renderFallbackPrivateMemory("query", fallback);
+    expect(receivedLimit).toBe(5);
+  });
+
+  it("uses semanticCandidates override when provided", async () => {
+    let receivedLimit = 0;
+    const fallback = {
+      async sessionKeyword(_query: string, limit: number) {
+        receivedLimit = limit;
+        return [];
+      },
+      async memoryFileSnippet() { return ""; },
+    };
+    const rerankOpts = { client: { complete: async () => "[]" } };
+    await renderFallbackPrivateMemory("query", fallback, { rerankOpts, semanticCandidates: 30 });
+    expect(receivedLimit).toBe(30);
+  });
+
+  it("uses semantic preamble when reranked in semantic mode", async () => {
+    const hit = {
+      session_id: "s1", session_title: "Test", role: "user",
+      snippet: "relevant content", msg_index: 0, created_at: "",
+    };
+    const fallback = {
+      async sessionKeyword() { return [hit]; },
+      async memoryFileSnippet() { return ""; },
+    };
+    const rerankOpts = {
+      client: {
+        complete: async () => JSON.stringify([{ index: 0, score: 8, summary: "semantic result" }]),
+      },
+    };
+    const result = await renderFallbackPrivateMemory("query", fallback, { rerankOpts });
+    expect(result).toContain("semantic");
+    expect(result).toContain("semantic result");
+  });
+});
+
+describe("runMemoryPreflight semantic fallback cascade", () => {
+  const emptyGraphSvc = {
+    status: () => "ready" as ServiceStatus,
+    getStatus: () => ({ status: "ready", mode: "local_graph" }),
+    async queryBatch() {
+      return [{ envelope: null, errorClass: "ok" as ErrorClass }];
+    },
+    async ensureFreshBundle() {},
+  } as unknown as MemoryService;
+
+  const sessionHit = {
+    session_id: "s1", session_title: "Chat", role: "user",
+    snippet: "Alice worked on Project Orion last month", msg_index: 0, created_at: "",
+  };
+
+  it("cascades to semantic FTS+rerank when graph returns no groups", async () => {
+    const fallback = {
+      async sessionKeyword() { return [sessionHit]; },
+      async memoryFileSnippet() { return ""; },
+    };
+    const rerankOpts = {
+      client: {
+        complete: async () =>
+          JSON.stringify([{ index: 0, score: 9, summary: "Alice led Project Orion" }]),
+      },
+    };
+
+    const r = await runMemoryPreflight("Alice与我的关系？", emptyGraphSvc, {
+      fallback,
+      rerankOpts,
+    });
+
+    expect(r).not.toBeNull();
+    expect(r?.privateContext).toContain("<private_memory>");
+    expect(r?.privateContext).toContain("Alice led Project Orion");
+    expect(r?.privateContext).toContain("semantic");
+  });
+
+  it("skips semantic cascade when semanticFallback is false", async () => {
+    let fallbackCalled = false;
+    const fallback = {
+      async sessionKeyword() { fallbackCalled = true; return [sessionHit]; },
+      async memoryFileSnippet() { return ""; },
+    };
+    const rerankOpts = {
+      client: { complete: async () => JSON.stringify([{ index: 0, score: 9, summary: "x" }]) },
+    };
+
+    const r = await runMemoryPreflight("Alice与我的关系？", emptyGraphSvc, {
+      fallback,
+      rerankOpts,
+      semanticFallback: false,
+    });
+
+    expect(r).toBeNull();
+    expect(fallbackCalled).toBe(false);
+  });
+
+  it("skips semantic cascade when rerankOpts is absent", async () => {
+    let fallbackCalled = false;
+    const fallback = {
+      async sessionKeyword() { fallbackCalled = true; return [sessionHit]; },
+      async memoryFileSnippet() { return ""; },
+    };
+
+    const r = await runMemoryPreflight("Alice与我的关系？", emptyGraphSvc, { fallback });
+    expect(r).toBeNull();
+    expect(fallbackCalled).toBe(false);
+  });
+
+  it("sets negative cache when cascade also finds nothing", async () => {
+    const query = "unknown entity xyz9999";
+    const fallback = {
+      async sessionKeyword() { return []; },
+      async memoryFileSnippet() { return ""; },
+    };
+    const rerankOpts = { client: { complete: async () => "[]" } };
+
+    const r = await runMemoryPreflight(query, emptyGraphSvc, { fallback, rerankOpts });
+    expect(r).toBeNull();
+    expect(isNegativeCached(query)).toBe(true);
   });
 });

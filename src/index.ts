@@ -97,10 +97,12 @@ export {
 
 export {
   PRIVATE_MEMORY_BODY_BYTE_CAP,
+  SEMANTIC_FALLBACK_CANDIDATES,
   renderFallbackPrivateMemory,
   renderPrivateMemoryContext,
   sanitizeUserBlock,
   truncatePrivateMemoryBody,
+  type FallbackRenderOptions,
   type PreflightQueryResult,
 } from "./preflight/render.js";
 

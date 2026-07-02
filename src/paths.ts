@@ -24,5 +24,5 @@ export function defaultSocketPath(): string {
 }
 
 export function defaultSessionsDir(): string {
-  return path.join(defaultPiHome(), "sessions");
+  return path.join(defaultPiHome(), "agent", "sessions");
 }

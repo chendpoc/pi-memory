@@ -100,6 +100,7 @@ function formatMemoryStatus(service: MemoryService): string {
   const snap = service.getStatus();
   const lines = [
     `status: ${snap.status}`,
+    snap.mode ? `mode: ${snap.mode}` : null,
     snap.reason ? `reason: ${snap.reason}` : null,
     snap.health ? `health: ${JSON.stringify(snap.health)}` : null,
   ].filter(Boolean);
@@ -123,18 +124,15 @@ export default function piMemoryExtension(pi: ExtensionAPI): void {
     const service = new MemoryService(cfg);
     sharedService = service;
 
+    await service.start();
+    service.startSessionIndex();
+    if (cfg.trainer.auto_interval) {
+      service.startAutoTrainer();
+    }
     try {
-      await service.start();
-      service.startSessionIndex();
-      if (cfg.trainer.auto_interval) {
-        service.startAutoTrainer();
-      }
       await refreshMemoryHelper(ctx, pi);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      if (ctx.hasUI) {
-        ctx.ui.notify(`pi-memory: sidecar start failed (${message}) — fallback mode active`, "warning");
-      }
+    } catch {
+      /* helper unavailable — regex-only preflight */
     }
   });
 

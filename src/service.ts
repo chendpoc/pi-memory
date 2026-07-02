@@ -1,5 +1,7 @@
+import fs from "node:fs";
 import path from "node:path";
 import type { MemoryConfig } from "./config.js";
+import { LocalGraphQuerier } from "./local/graphQuery.js";
 import { currentBundleReadable } from "./sidecar/bundle.js";
 import { SidecarClient } from "./sidecar/client.js";
 import { SidecarProcess } from "./sidecar/process.js";
@@ -16,6 +18,7 @@ import type {
 export interface MemoryServiceStatus {
   status: ServiceStatus;
   reason?: string;
+  mode?: "sidecar" | "local_graph";
   health?: HealthPayload | null;
 }
 
@@ -26,14 +29,19 @@ export interface QueryBatchResult {
 }
 
 /**
- * Mode B local memory: spawn tlm sidecar, query via Unix socket.
- * No Cloud puller — bundle must exist under bundleRoot/current.
+ * Local memory service with two query backends:
+ * 1. tlm sidecar (Unix socket) — when tlm binary is available
+ * 2. LocalGraphQuerier — direct graph.json query when tlm is missing
+ *
+ * Both require a bundle at bundleRoot/current.
  */
 export class MemoryService {
   private serviceStatus: ServiceStatus = "disabled";
   private reason = "";
+  private mode: "sidecar" | "local_graph" | null = null;
   private process: SidecarProcess | null = null;
   private client: SidecarClient | null = null;
+  private localQuerier: LocalGraphQuerier | null = null;
   private abort: AbortController | null = null;
   private scheduler: TrainScheduler | null = null;
   private sessionIndex: SessionIndex | null = null;
@@ -52,6 +60,7 @@ export class MemoryService {
     return {
       status: this.serviceStatus,
       reason: this.reason || undefined,
+      mode: this.mode ?? undefined,
     };
   }
 
@@ -79,36 +88,50 @@ export class MemoryService {
 
     this.serviceStatus = "initializing";
     this.abort = new AbortController();
-    this.process = new SidecarProcess(this.cfg);
 
+    if (await this.trySidecar()) return;
+
+    if (this.tryLocalGraph()) return;
+
+    this.serviceStatus = "unavailable";
+    this.reason = "no_query_backend";
+  }
+
+  private async trySidecar(): Promise<boolean> {
+    this.process = new SidecarProcess(this.cfg);
     try {
       await this.process.resolveBinary();
     } catch {
-      this.serviceStatus = "unavailable";
-      this.reason = "tlm_binary_missing";
-      return;
+      this.process = null;
+      return false;
     }
 
     try {
       await this.process.spawn();
-      await this.process.waitReady(this.abort.signal);
+      await this.process.waitReady(this.abort!.signal);
       this.client = this.process.getClient();
       this.serviceStatus = "ready";
+      this.mode = "sidecar";
       this.reason = "";
-    } catch (err) {
-      this.serviceStatus = "unavailable";
-      this.reason =
-        err instanceof Error ? err.message : "sidecar_startup_failed";
+      return true;
+    } catch {
       await this.process.stop();
       this.process = null;
       this.client = null;
+      return false;
     }
   }
 
-  /**
-   * Start interval-based auto-training. If already running, stops and restarts.
-   * Uses config.trainer.auto_interval.
-   */
+  private tryLocalGraph(): boolean {
+    const querier = new LocalGraphQuerier(this.cfg.bundleRoot);
+    if (!querier.load()) return false;
+    this.localQuerier = querier;
+    this.serviceStatus = "ready";
+    this.mode = "local_graph";
+    this.reason = "";
+    return true;
+  }
+
   startAutoTrainer(logger?: (log: SchedulerLog) => void): void {
     this.scheduler?.stop();
     this.scheduler = createTrainScheduler(
@@ -123,12 +146,14 @@ export class MemoryService {
     );
   }
 
-  /**
-   * Trigger incremental session index build in the background (non-blocking).
-   * Opens (or creates) the SQLite FTS5 DB at ~/.pi/memory/sessions.db.
-   */
   startSessionIndex(): void {
-    const dbPath = path.join(this.cfg.bundleRoot, "sessions.db");
+    const dbDir = this.cfg.bundleRoot;
+    try {
+      fs.mkdirSync(dbDir, { recursive: true });
+    } catch {
+      return;
+    }
+    const dbPath = path.join(dbDir, "sessions.db");
     const idx = openSessionIndex(dbPath);
     if (!idx) return;
     this.sessionIndex = idx;
@@ -148,6 +173,8 @@ export class MemoryService {
     await this.process?.stop();
     this.process = null;
     this.client = null;
+    this.localQuerier = null;
+    this.mode = null;
     if (this.cfg.provider === "disabled") {
       this.serviceStatus = "disabled";
     } else {
@@ -181,22 +208,42 @@ export class MemoryService {
     errorClass: ErrorClass;
     transportError?: Error;
   }> {
-    if (this.serviceStatus !== "ready" || !this.client) {
+    if (this.serviceStatus !== "ready") {
       return { env: null, errorClass: "unavailable" };
     }
-    const timeout = AbortSignal.timeout(this.cfg.queryTimeoutMs);
-    const combined = signal
-      ? AbortSignal.any([signal, timeout])
-      : timeout;
-    return this.client.query(intent, combined);
+
+    if (this.client && this.mode === "sidecar") {
+      const timeout = AbortSignal.timeout(this.cfg.queryTimeoutMs);
+      const combined = signal
+        ? AbortSignal.any([signal, timeout])
+        : timeout;
+      return this.client.query(intent, combined);
+    }
+
+    if (this.localQuerier && this.mode === "local_graph") {
+      return this.localQuerier.query(intent);
+    }
+
+    return { env: null, errorClass: "unavailable" };
   }
 
   async health(): Promise<HealthPayload | null> {
-    if (!this.client) return null;
-    try {
-      return await this.client.health();
-    } catch {
-      return null;
+    if (this.client) {
+      try {
+        return await this.client.health();
+      } catch {
+        return null;
+      }
     }
+    if (this.localQuerier) {
+      return {
+        ready: true,
+        compatibility: "local_graph",
+        protocol_version: 1,
+        uptime_secs: 0,
+        status_message: `local graph query (${this.localQuerier.isLoaded() ? "loaded" : "not loaded"})`,
+      };
+    }
+    return null;
   }
 }

@@ -146,62 +146,100 @@ export function openSessionIndex(dbPath: string, injectedDb?: SqliteDatabase): S
     return count;
   }
 
+  async function collectFiles(dir: string): Promise<string[]> {
+    let names: string[];
+    try {
+      names = await fs.readdir(dir);
+    } catch {
+      return [];
+    }
+    const files: string[] = [];
+    for (const name of names) {
+      const full = path.join(dir, name);
+      let st;
+      try { st = await fs.stat(full); } catch { continue; }
+      if (st.isDirectory()) {
+        files.push(...await collectFiles(full));
+      } else if (st.isFile() && (name.endsWith(".json") || name.endsWith(".jsonl"))) {
+        files.push(full);
+      }
+    }
+    return files;
+  }
+
+  function parseJsonlMessages(raw: string, filePath: string): {
+    id: string; title: string; createdAt: string;
+    messages: Array<{ role: string; content: string; index: number }>;
+  } | null {
+    const lines = raw.split("\n").filter((l) => l.trim());
+    if (lines.length === 0) return null;
+    let id = path.basename(filePath, path.extname(filePath));
+    let title = "";
+    let createdAt = "";
+    const messages: Array<{ role: string; content: string; index: number }> = [];
+    let idx = 0;
+    for (const line of lines) {
+      let obj: Record<string, unknown>;
+      try { obj = JSON.parse(line) as Record<string, unknown>; } catch { continue; }
+      if (obj.type === "session") {
+        id = (obj.id as string) ?? id;
+        title = (obj.title as string) ?? "";
+        createdAt = (obj.timestamp as string) ?? "";
+        continue;
+      }
+      if (obj.type === "message") {
+        const msg = (obj as { message?: PiSessionMessage }).message;
+        if (!msg?.role || !msg.content) continue;
+        if (msg.role !== "user" && msg.role !== "assistant") continue;
+        const text = messageText(msg.content);
+        if (text.trim()) {
+          messages.push({ role: msg.role, content: text, index: idx++ });
+        }
+      }
+    }
+    if (messages.length === 0) return null;
+    return { id, title, createdAt, messages };
+  }
+
   async function loadSessionFiles(sessionsDir: string, modifiedAfter?: Date | null): Promise<Array<{
     id: string;
     title: string;
     createdAt: string;
     messages: Array<{ role: string; content: string; index: number }>;
   }>> {
-    let entries: string[];
-    try {
-      entries = await fs.readdir(sessionsDir);
-    } catch {
-      return [];
-    }
-
+    const filePaths = await collectFiles(sessionsDir);
     const results: Array<{
-      id: string;
-      title: string;
-      createdAt: string;
+      id: string; title: string; createdAt: string;
       messages: Array<{ role: string; content: string; index: number }>;
     }> = [];
 
-    for (const name of entries) {
-      if (!name.endsWith(".json")) continue;
-      const filePath = path.join(sessionsDir, name);
+    for (const filePath of filePaths) {
       let st;
-      try {
-        st = await fs.stat(filePath);
-      } catch {
-        continue;
-      }
+      try { st = await fs.stat(filePath); } catch { continue; }
       if (!st.isFile()) continue;
       if (modifiedAfter && st.mtime <= modifiedAfter) continue;
 
-      let session: PiSessionFile;
-      try {
-        const raw = await fs.readFile(filePath, "utf8");
-        session = JSON.parse(raw) as PiSessionFile;
-      } catch {
-        continue;
-      }
+      let raw: string;
+      try { raw = await fs.readFile(filePath, "utf8"); } catch { continue; }
 
-      const sessionId = session.id ?? path.basename(name, ".json");
-      const messages: Array<{ role: string; content: string; index: number }> = [];
-      for (let i = 0; i < (session.messages?.length ?? 0); i++) {
-        const msg = session.messages![i]!;
-        const text = messageText(msg.content);
-        if (text.trim()) {
-          messages.push({ role: msg.role ?? "unknown", content: text, index: i });
+      if (filePath.endsWith(".jsonl")) {
+        const parsed = parseJsonlMessages(raw, filePath);
+        if (parsed) results.push(parsed);
+      } else {
+        let session: PiSessionFile;
+        try { session = JSON.parse(raw) as PiSessionFile; } catch { continue; }
+        const sessionId = session.id ?? path.basename(filePath, ".json");
+        const messages: Array<{ role: string; content: string; index: number }> = [];
+        for (let i = 0; i < (session.messages?.length ?? 0); i++) {
+          const msg = session.messages![i]!;
+          const text = messageText(msg.content);
+          if (text.trim()) {
+            messages.push({ role: msg.role ?? "unknown", content: text, index: i });
+          }
         }
-      }
-      if (messages.length > 0) {
-        results.push({
-          id: sessionId,
-          title: session.title ?? "",
-          createdAt: session.created_at ?? "",
-          messages,
-        });
+        if (messages.length > 0) {
+          results.push({ id: sessionId, title: session.title ?? "", createdAt: session.created_at ?? "", messages });
+        }
       }
     }
     return results;

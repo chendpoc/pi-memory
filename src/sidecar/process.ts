@@ -27,8 +27,9 @@ export class SidecarProcess {
       await access(bin, constants.X_OK);
       return bin;
     }
-    // PATH lookup: spawn with shell on unix
-    return bin;
+    const resolved = await which(bin);
+    if (!resolved) throw new Error(`${bin} not found in PATH`);
+    return resolved;
   }
 
   async spawn(): Promise<void> {
@@ -57,8 +58,8 @@ export class SidecarProcess {
       detached: process.platform !== "win32",
     });
 
-    this.child.on("error", (err) => {
-      console.error("[pi-memory] sidecar spawn error:", err.message);
+    this.child.on("error", () => {
+      /* handled by waitReady timeout */
     });
 
     this.child.unref?.();
@@ -123,6 +124,20 @@ export class SidecarProcess {
         resolve();
       });
     });
+  }
+}
+
+async function which(cmd: string): Promise<string | null> {
+  const { execFileSync } = await import("node:child_process");
+  try {
+    const result = execFileSync(
+      process.platform === "win32" ? "where" : "which",
+      [cmd],
+      { encoding: "utf8", timeout: 3_000 },
+    ).trim();
+    return result.split("\n")[0]?.trim() || null;
+  } catch {
+    return null;
   }
 }
 

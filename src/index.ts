@@ -206,6 +206,8 @@ export {
 
 export { defaultSessionDbPath } from "./fallback/sessionSearch.js";
 
+export { LocalGraphQuerier } from "./local/graphQuery.js";
+
 export {
   rerankWithLLM,
   type RerankOptions,

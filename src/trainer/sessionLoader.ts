@@ -29,6 +29,21 @@ interface PiSessionFile {
   messages?: PiSessionMessage[];
 }
 
+interface JsonlSessionHeader {
+  type: "session";
+  id?: string;
+  timestamp?: string;
+  title?: string;
+}
+
+interface JsonlMessageLine {
+  type: "message";
+  message?: {
+    role?: string;
+    content?: unknown;
+  };
+}
+
 function messageText(content: unknown): string {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";
@@ -53,8 +68,108 @@ export interface SessionLoaderOptions {
 }
 
 /**
- * Scan session JSON files, parse Pi session format, optionally filter by
- * modified-after timestamp for incremental training.
+ * Collect all session files recursively (supports project subdirectories).
+ * Returns both .json and .jsonl files.
+ */
+async function collectSessionFiles(dir: string): Promise<string[]> {
+  let names: string[];
+  try {
+    names = await fs.readdir(dir);
+  } catch {
+    return [];
+  }
+
+  const files: string[] = [];
+  for (const name of names) {
+    const full = path.join(dir, name);
+    let st;
+    try { st = await fs.stat(full); } catch { continue; }
+    if (st.isDirectory()) {
+      const sub = await collectSessionFiles(full);
+      files.push(...sub);
+    } else if (st.isFile() && (name.endsWith(".json") || name.endsWith(".jsonl"))) {
+      files.push(full);
+    }
+  }
+  return files;
+}
+
+function parseJsonlSession(raw: string, filePath: string): LoadedSession | null {
+  const lines = raw.split("\n").filter((l) => l.trim());
+  if (lines.length === 0) return null;
+
+  let header: JsonlSessionHeader | null = null;
+  const turns: SessionTurn[] = [];
+  let turnIndex = 0;
+
+  for (const line of lines) {
+    let obj: Record<string, unknown>;
+    try {
+      obj = JSON.parse(line) as Record<string, unknown>;
+    } catch {
+      continue;
+    }
+
+    if (obj.type === "session" && !header) {
+      header = obj as unknown as JsonlSessionHeader;
+      continue;
+    }
+
+    if (obj.type === "message") {
+      const msg = (obj as unknown as JsonlMessageLine).message;
+      if (!msg?.role || !msg.content) continue;
+      if (msg.role !== "user" && msg.role !== "assistant") continue;
+      const text = messageText(msg.content);
+      if (!text.trim()) continue;
+      turns.push({ role: msg.role, content: text, turnIndex: turnIndex++ });
+    }
+  }
+
+  if (turns.length === 0) return null;
+
+  return {
+    id: header?.id ?? path.basename(filePath, path.extname(filePath)),
+    title: header?.title ?? "",
+    createdAt: header?.timestamp ?? "",
+    filePath,
+    modifiedAt: new Date(),
+    turns,
+  };
+}
+
+function parseJsonSession(raw: string, filePath: string): LoadedSession | null {
+  let session: PiSessionFile;
+  try {
+    session = JSON.parse(raw) as PiSessionFile;
+  } catch {
+    return null;
+  }
+
+  if (!session.messages || session.messages.length === 0) return null;
+
+  const turns: SessionTurn[] = [];
+  for (let i = 0; i < session.messages.length; i++) {
+    const msg = session.messages[i]!;
+    const text = messageText(msg.content);
+    if (!text.trim()) continue;
+    turns.push({ role: msg.role ?? "unknown", content: text, turnIndex: i });
+  }
+
+  if (turns.length === 0) return null;
+
+  return {
+    id: session.id ?? path.basename(filePath, ".json"),
+    title: session.title ?? "",
+    createdAt: session.created_at ?? "",
+    filePath,
+    modifiedAt: new Date(),
+    turns,
+  };
+}
+
+/**
+ * Scan session files (JSON + JSONL, recursive subdirectories), parse Pi session
+ * format, optionally filter by modified-after timestamp for incremental training.
  */
 export async function loadSessions(
   opts: SessionLoaderOptions,
@@ -62,19 +177,10 @@ export async function loadSessions(
   const { sessionsDir, modifiedAfter } = opts;
   if (!sessionsDir.trim()) return [];
 
-  let entries: string[];
-  try {
-    entries = await fs.readdir(sessionsDir);
-  } catch {
-    return [];
-  }
-
+  const filePaths = await collectSessionFiles(sessionsDir);
   const sessions: LoadedSession[] = [];
 
-  for (const name of entries) {
-    if (!name.endsWith(".json")) continue;
-    const filePath = path.join(sessionsDir, name);
-
+  for (const filePath of filePaths) {
     let st: Awaited<ReturnType<typeof fs.stat>>;
     try {
       st = await fs.stat(filePath);
@@ -82,43 +188,23 @@ export async function loadSessions(
       continue;
     }
     if (!st.isFile()) continue;
+    if (modifiedAfter && st.mtime <= modifiedAfter) continue;
 
-    if (modifiedAfter && st.mtime <= modifiedAfter) {
-      continue;
-    }
-
-    let session: PiSessionFile;
+    let raw: string;
     try {
-      const raw = await fs.readFile(filePath, "utf8");
-      session = JSON.parse(raw) as PiSessionFile;
+      raw = await fs.readFile(filePath, "utf8");
     } catch {
       continue;
     }
 
-    if (!session.messages || session.messages.length === 0) continue;
+    const isJsonl = filePath.endsWith(".jsonl");
+    const parsed = isJsonl
+      ? parseJsonlSession(raw, filePath)
+      : parseJsonSession(raw, filePath);
 
-    const turns: SessionTurn[] = [];
-    for (let i = 0; i < session.messages.length; i++) {
-      const msg = session.messages[i]!;
-      const text = messageText(msg.content);
-      if (!text.trim()) continue;
-      turns.push({
-        role: msg.role ?? "unknown",
-        content: text,
-        turnIndex: i,
-      });
-    }
-
-    if (turns.length === 0) continue;
-
-    sessions.push({
-      id: session.id ?? path.basename(name, ".json"),
-      title: session.title ?? "",
-      createdAt: session.created_at ?? "",
-      filePath,
-      modifiedAt: st.mtime,
-      turns,
-    });
+    if (!parsed) continue;
+    parsed.modifiedAt = st.mtime;
+    sessions.push(parsed);
   }
 
   sessions.sort((a, b) => a.modifiedAt.getTime() - b.modifiedAt.getTime());

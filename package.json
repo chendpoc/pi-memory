@@ -1,7 +1,7 @@
 {
   "name": "@chendpoc/pi-memory",
-  "version": "0.1.0",
-  "description": "Local episodic memory for Pi agent — TLM sidecar + memory_recall (mode B)",
+  "version": "0.1.1",
+  "description": "Local episodic memory for Pi coding agent — knowledge graph + memory_recall tool + implicit preflight",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -37,9 +37,9 @@
     "pi-package",
     "pi-extension",
     "pi-agent",
-    "tlm",
     "episodic-memory",
-    "sidecar"
+    "knowledge-graph",
+    "memory-recall"
   ],
   "license": "MIT",
   "author": "chendpoc",

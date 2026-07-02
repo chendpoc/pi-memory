@@ -11,6 +11,8 @@ import {
   type MemoryProvider,
   type TrainerConfig,
 } from "./config.js";
+import type { OllamaConfig } from "./adapters/ollamaClient.js";
+import type { OpenAICompatConfig } from "./adapters/openaiCompatClient.js";
 
 export interface MemorySettingsFile {
   provider?: MemoryProvider;
@@ -24,12 +26,18 @@ export interface MemorySettingsFile {
   memoryMdPaths?: string[];
   /** LLM for intent detection, rerank, and LLM extraction. Overrides default helper model. */
   helperModel?: string;
+  /** Ollama local API config for helper / trainer / rerank. */
+  ollama?: Partial<OllamaConfig>;
+  /** OpenAI-compatible endpoint config (vLLM, SGLang, LM Studio, etc.) */
+  vllm?: Partial<OpenAICompatConfig>;
   trainer?: Partial<TrainerConfig>;
 }
 
 export interface LoadedMemorySettings {
   config: MemoryConfig;
   helperModel: string | undefined;
+  ollama: OllamaConfig | null;
+  vllm: OpenAICompatConfig | null;
   configPath: string;
 }
 
@@ -62,7 +70,7 @@ export function loadMemorySettings(
   configPath = defaultMemoryConfigPath(),
 ): LoadedMemorySettings {
   const fileSettings = readMemorySettingsFile(configPath);
-  const { helperModel, trainer, ...configFields } = fileSettings;
+  const { helperModel, ollama, vllm, trainer, ...configFields } = fileSettings;
 
   const config = normalizeMemoryConfig({
     ...configFields,
@@ -70,9 +78,28 @@ export function loadMemorySettings(
     ...overrides,
   } as Partial<MemoryConfig> & Record<string, unknown>);
 
+  let resolvedOllama: OllamaConfig | null = null;
+  if (ollama && ollama.model) {
+    resolvedOllama = {
+      baseUrl: ollama.baseUrl?.trim() || "http://localhost:11434",
+      model: ollama.model.trim(),
+    };
+  }
+
+  let resolvedVllm: OpenAICompatConfig | null = null;
+  if (vllm && vllm.model) {
+    resolvedVllm = {
+      baseUrl: vllm.baseUrl?.trim() || "http://localhost:8000",
+      model: vllm.model.trim(),
+      apiKey: vllm.apiKey?.trim() || undefined,
+    };
+  }
+
   return {
     config,
     helperModel: helperModel?.trim() || undefined,
+    ollama: resolvedOllama,
+    vllm: resolvedVllm,
     configPath,
   };
 }

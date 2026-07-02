@@ -218,6 +218,21 @@ export { defaultSessionDbPath } from "./fallback/sessionSearch.js";
 export { LocalGraphQuerier } from "./local/graphQuery.js";
 
 export {
+  createOllamaLLMClient,
+  createOllamaMemoryHelper,
+  ollamaHealthCheck,
+  DEFAULT_OLLAMA_CONFIG,
+  type OllamaConfig,
+} from "./adapters/ollamaClient.js";
+
+export {
+  createOpenAICompatLLMClient,
+  createOpenAICompatMemoryHelper,
+  openaiCompatHealthCheck,
+  type OpenAICompatConfig,
+} from "./adapters/openaiCompatClient.js";
+
+export {
   rerankWithLLM,
   type RerankOptions,
   type RankedResult,

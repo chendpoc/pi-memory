@@ -6,6 +6,18 @@ import { truncateHead } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 
 import {
+  createOllamaLLMClient,
+  createOllamaMemoryHelper,
+  ollamaHealthCheck,
+  type OllamaConfig,
+} from "./adapters/ollamaClient.js";
+import {
+  createOpenAICompatLLMClient,
+  createOpenAICompatMemoryHelper,
+  openaiCompatHealthCheck,
+  type OpenAICompatConfig,
+} from "./adapters/openaiCompatClient.js";
+import {
   createPiLLMClient,
   DEFAULT_HELPER_MODEL,
   DEFAULT_HELPER_PROVIDER,
@@ -62,6 +74,8 @@ const RECALL_MAX_BYTES = 32_000;
 let sharedService: MemoryService | null = null;
 let sessionCfg: MemoryConfig | null = null;
 let settingsHelperModel: string | undefined;
+let settingsOllama: OllamaConfig | null = null;
+let settingsVllm: OpenAICompatConfig | null = null;
 let sharedHelper: MemoryHelperLLM | null = null;
 let sharedLLMClient: LLMClient | null = null;
 let preflightCache: { userText: string; privateContext: string } | null = null;
@@ -74,8 +88,31 @@ function getHelperModelSpec(pi: ExtensionAPI): string | undefined {
   return resolveHelperModelSpec(pi.getFlag("memory-helper-model"), settingsHelperModel);
 }
 
+function isOllamaModel(spec: string | undefined): boolean {
+  return !!spec?.startsWith("ollama/");
+}
+
 async function refreshMemoryHelper(ctx: ExtensionContext, pi: ExtensionAPI): Promise<void> {
   const helperModel = getHelperModelSpec(pi);
+
+  if (settingsVllm) {
+    const vllmOk = await openaiCompatHealthCheck(settingsVllm.baseUrl);
+    if (vllmOk) {
+      sharedHelper = createOpenAICompatMemoryHelper(settingsVllm);
+      sharedLLMClient = createOpenAICompatLLMClient(settingsVllm);
+      return;
+    }
+  }
+
+  if ((isOllamaModel(helperModel) || settingsOllama) && settingsOllama) {
+    const ollamaOk = await ollamaHealthCheck(settingsOllama.baseUrl);
+    if (ollamaOk) {
+      sharedHelper = createOllamaMemoryHelper(settingsOllama);
+      sharedLLMClient = createOllamaLLMClient(settingsOllama);
+      return;
+    }
+  }
+
   sharedHelper = await resolveMemoryHelperLLM(ctx, helperModel);
   sharedLLMClient = createPiLLMClient(ctx, helperModel);
 }
@@ -112,6 +149,11 @@ function formatMemoryStatus(service: MemoryService): string {
     `status: ${snap.status}`,
     snap.mode ? `mode: ${snap.mode}` : null,
     snap.reason ? `reason: ${snap.reason}` : null,
+    sharedHelper
+      ? `helper: ${settingsVllm ? `vllm/${settingsVllm.model}` : settingsOllama ? `ollama/${settingsOllama.model}` : (settingsHelperModel ?? "pi-ai")}`
+      : "helper: none (regex only)",
+    settingsVllm ? `vllm: ${settingsVllm.baseUrl} (${settingsVllm.model})` : null,
+    settingsOllama ? `ollama: ${settingsOllama.baseUrl} (${settingsOllama.model})` : null,
     snap.health ? `health: ${JSON.stringify(snap.health)}` : null,
   ].filter(Boolean);
   return lines.join("\n");
@@ -127,6 +169,8 @@ export default function piMemoryExtension(pi: ExtensionAPI): void {
     const loaded = loadMemorySettings();
     const cfg = loaded.config;
     settingsHelperModel = loaded.helperModel;
+    settingsOllama = loaded.ollama;
+    settingsVllm = loaded.vllm;
     sessionCfg = cfg;
     preflightCache = null;
     sharedHelper = null;
@@ -155,6 +199,8 @@ export default function piMemoryExtension(pi: ExtensionAPI): void {
     }
     sessionCfg = null;
     settingsHelperModel = undefined;
+    settingsOllama = null;
+    settingsVllm = null;
     sharedHelper = null;
     sharedLLMClient = null;
     preflightCache = null;
@@ -170,6 +216,8 @@ export default function piMemoryExtension(pi: ExtensionAPI): void {
 
   const initialSettings = loadMemorySettings();
   settingsHelperModel = initialSettings.helperModel;
+  settingsOllama = initialSettings.ollama;
+  settingsVllm = initialSettings.vllm;
 
   const fallback = createFallbackQuery({
     sessionsDir: initialSettings.config.sessionsDir,

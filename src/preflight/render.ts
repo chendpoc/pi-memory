@@ -158,6 +158,7 @@ export async function renderFallbackPrivateMemory(
 export function renderPrivateMemoryContext(
   intents: QueryIntent[],
   results: PreflightQueryResult[],
+  memorySnippet?: string,
 ): string {
   const bodyParts: string[] = [];
 
@@ -192,6 +193,12 @@ export function renderPrivateMemoryContext(
       const n = note.trim();
       if (n) bodyParts.push(`Note: ${n}`);
     }
+  }
+
+  if (memorySnippet?.trim()) {
+    bodyParts.push("");
+    bodyParts.push("MEMORY.md matches:");
+    bodyParts.push(memorySnippet.trim());
   }
 
   if (bodyParts.length === 0) return "";

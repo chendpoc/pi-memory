@@ -1,6 +1,7 @@
 import type { RerankOptions } from "../fallback/llmRerank.js";
 import type { MemoryConfig } from "../config.js";
 import type { FallbackQuery } from "../types.js";
+import { memoryIndexSnippet, type MemoryIndexCapOptions } from "../consolidation/memoryIndex.js";
 import type { MemoryService } from "../service.js";
 import type { QueryIntent } from "../types.js";
 import {
@@ -41,6 +42,8 @@ export interface MemoryPreflightOptions extends DetectIntentsOptions {
    * Defaults to true — set to false to disable the cascade.
    */
   semanticFallback?: boolean;
+  /** MEMORY.md index grep that runs in parallel with graph query. */
+  memoryIndex?: ({ paths: string[] } & MemoryIndexCapOptions) | null;
 }
 
 export interface MemoryPreflightResult {
@@ -113,7 +116,14 @@ export async function runMemoryPreflight(
       ? AbortSignal.any([options.signal, timeout])
       : timeout;
 
-    const results = await service.queryBatch(intents, combined);
+    const memorySnippetPromise = options.memoryIndex?.paths.length
+      ? memoryIndexSnippet(options.memoryIndex.paths, query, options.memoryIndex)
+      : Promise.resolve("");
+
+    const [results, memorySnippet] = await Promise.all([
+      service.queryBatch(intents, combined),
+      memorySnippetPromise.catch(() => ""),
+    ]);
     if (timeout.aborted) {
       setNegativeCache(query);
       return null;
@@ -124,7 +134,11 @@ export async function runMemoryPreflight(
       ok: r.errorClass === "ok" && r.envelope != null && !r.envelope.error,
     }));
 
-    const privateContext = renderPrivateMemoryContext(intents, renderInput);
+    const privateContext = renderPrivateMemoryContext(
+      intents,
+      renderInput,
+      memorySnippet,
+    );
     if (!privateContext.trim()) {
       // Graph was ready but returned no usable results.
       // Cascade to semantic fallback (broader FTS + single LLM rerank) when

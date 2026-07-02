@@ -28,6 +28,16 @@ async function writeSession(
   );
 }
 
+type JsonlLine = Record<string, unknown>;
+
+async function writeJsonlSession(dir: string, file: string, lines: JsonlLine[]): Promise<void> {
+  await fs.writeFile(
+    path.join(dir, `${file}.jsonl`),
+    lines.map((line) => JSON.stringify(line)).join("\n"),
+    "utf8",
+  );
+}
+
 /**
  * Create a minimal in-memory SQLite mock for tests that don't require
  * the real better-sqlite3 native binding.
@@ -315,6 +325,27 @@ describe("openSessionIndex (with mock DB)", () => {
 
     const hits = idx.search("GraphQL", 10);
     expect(hits.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("rebuildIndex follows active branch in jsonl and ignores inactive branches", async () => {
+    tmpDir = await makeTmpDir("pi-idx-jsonl-branch-");
+    await writeJsonlSession(tmpDir, "branch", [
+      { type: "session", id: "branch", title: "Branch JSONL", timestamp: "2026-06-01T10:00:00Z" },
+      { type: "message", id: "m1", message: { role: "user", content: "Root message" } },
+      { type: "message", id: "m2", parentId: "m1", message: { role: "assistant", content: "Active branch reply" } },
+      { type: "message", id: "m3", parentId: "m1", message: { role: "assistant", content: "Ignore this hidden path" } },
+      { type: "message", id: "m4", parentId: "m2", message: { role: "user", content: "Continue active branch" } },
+    ]);
+
+    const db = createInMemoryMock();
+    idx = openSessionIndex(":memory:", db)!;
+    const { indexed } = await idx.rebuildIndex(tmpDir);
+    expect(indexed).toBe(3); // root + two active-branch messages
+
+    const hits = idx.search("hidden", 10);
+    expect(hits).toHaveLength(0);
+    const activeHits = idx.search("Active branch reply", 10);
+    expect(activeHits).toHaveLength(1);
   });
 
   it("openSessionIndex returns null when no DB available and no injected DB", () => {

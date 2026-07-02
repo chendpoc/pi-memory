@@ -2,18 +2,20 @@ import fs from "node:fs/promises";
 import { open } from "node:fs/promises";
 import path from "node:path";
 
+import { openConsolidationStore } from "../consolidation/stage1/store.js";
+import type { MemoryScope } from "../consolidation/scope.js";
 import type { ToolResult } from "../types.js";
 
 export const MEMORY_APPEND_NAME = "memory_append";
 
 export const MEMORY_APPEND_DESCRIPTION =
-  "Append new entries to MEMORY.md. Use this instead of file_write or file_edit for memory updates. " +
-  "Writes are append-only with a simple lock to avoid concurrent clobber.";
+  "Persist durable memory only when the user explicitly asks to remember something. " +
+  "Writes go through the pi-memory consolidation stage instead of direct file edits when configured.";
 
-export const MEMORY_APPEND_PROMPT_SNIPPET = "Append durable notes to MEMORY.md";
+export const MEMORY_APPEND_PROMPT_SNIPPET = "Persist explicit user memory";
 
 export const MEMORY_APPEND_PROMPT_GUIDELINES = [
-  "Use memory_append to persist user preferences or facts the user explicitly asked to remember — not for transient task state.",
+  "Use memory_append only when the user explicitly asks to remember a preference or durable fact — not for transient task state.",
 ] as const;
 
 export const MEMORY_APPEND_PARAMETERS = {
@@ -71,8 +73,52 @@ export async function appendToMemoryMd(
   });
 }
 
+export interface Stage1AppendOptions {
+  dbPath: string;
+  sessionId?: string;
+  sessionFile?: string;
+  scope?: MemoryScope;
+  now?: string;
+}
+
+export async function appendToStage1(
+  content: string,
+  opts: Stage1AppendOptions,
+): Promise<string> {
+  const trimmed = content.trim();
+  if (!trimmed) throw new Error("content must not be empty");
+  const store = openConsolidationStore(opts.dbPath);
+  if (!store) throw new Error("could not open consolidation store");
+  const now = opts.now ?? new Date().toISOString();
+  const sessionId = opts.sessionId
+    ? `manual_${opts.sessionId}_${Date.now()}`
+    : `manual_${Date.now()}`;
+  try {
+    store.upsertStage1Output({
+      session_id: sessionId,
+      session_file: opts.sessionFile ?? "manual-memory-append",
+      source_mtime_ms: Date.now(),
+      generated_at: now,
+      raw_memory: trimmed,
+      rollout_summary: trimmed,
+      scope: opts.scope ?? "global",
+      status: "done",
+      selected_for_phase2: false,
+      usage_count: 0,
+      last_usage: now,
+      error_message: null,
+    });
+    return sessionId;
+  } finally {
+    store.close();
+  }
+}
+
 export class MemoryAppendTool {
-  constructor(private readonly memoryMdPath: string) {}
+  constructor(
+    private readonly memoryMdPath: string,
+    private readonly stage1?: Stage1AppendOptions,
+  ) {}
 
   info() {
     return {
@@ -97,6 +143,10 @@ export class MemoryAppendTool {
       return { content: "content must not be empty", isError: true };
     }
     try {
+      if (this.stage1) {
+        const id = await appendToStage1(content, this.stage1);
+        return { content: `queued memory for consolidation: ${id}` };
+      }
       await appendToMemoryMd(this.memoryMdPath, content);
       return { content: `appended to ${this.memoryMdPath}` };
     } catch (e) {
@@ -108,6 +158,9 @@ export class MemoryAppendTool {
   }
 }
 
-export function createMemoryAppendTool(memoryMdPath: string): MemoryAppendTool {
-  return new MemoryAppendTool(memoryMdPath);
+export function createMemoryAppendTool(
+  memoryMdPath: string,
+  stage1?: Stage1AppendOptions,
+): MemoryAppendTool {
+  return new MemoryAppendTool(memoryMdPath, stage1);
 }

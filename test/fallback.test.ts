@@ -7,7 +7,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createFallbackQuery } from "../src/fallback/index.js";
 import { memoryMdSnippet } from "../src/fallback/memoryMd.js";
 import { sessionKeywordSearch } from "../src/fallback/sessionSearch.js";
-import { appendToMemoryMd } from "../src/tools/memoryAppend.js";
+import { openConsolidationStore } from "../src/consolidation/stage1/store.js";
+import { appendToMemoryMd, createMemoryAppendTool } from "../src/tools/memoryAppend.js";
 import { MemoryRecallTool } from "../src/tools/memoryRecall.js";
 import type { MemoryQuerier, ServiceStatus } from "../src/types.js";
 
@@ -129,5 +130,23 @@ describe("appendToMemoryMd", () => {
     await appendToMemoryMd(memPath, "- new fact");
     const text = await fs.readFile(memPath, "utf8");
     expect(text).toBe("- new fact\n");
+  });
+
+  it("queues memory_append content into stage1 when configured", async () => {
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "pi-mem-append-stage1-"));
+    const dbPath = path.join(tmpDir, "memories.sqlite");
+    const tool = createMemoryAppendTool(path.join(tmpDir, "MEMORY.md"), {
+      dbPath,
+      scope: "global",
+      now: "2026-07-02T00:00:00.000Z",
+    });
+
+    const result = await tool.run(JSON.stringify({ content: "- remember UTF-8" }));
+    expect(result.isError).toBeFalsy();
+    expect(result.content).toContain("queued memory");
+
+    const store = openConsolidationStore(dbPath)!;
+    expect(store.listUnselectedStage1(10)[0]!.raw_memory).toBe("- remember UTF-8");
+    store.close();
   });
 });

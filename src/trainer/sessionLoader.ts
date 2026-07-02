@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { messageText, parseJsonlSession as parseActiveBranchJsonl } from "../session/activeBranch.js";
 
 export interface SessionTurn {
   role: string;
@@ -14,6 +15,8 @@ export interface LoadedSession {
   createdAt: string;
   filePath: string;
   modifiedAt: Date;
+  parentSessionFile?: string;
+  parentSessionId?: string;
   turns: SessionTurn[];
 }
 
@@ -27,39 +30,6 @@ interface PiSessionFile {
   title?: string;
   created_at?: string;
   messages?: PiSessionMessage[];
-}
-
-interface JsonlSessionHeader {
-  type: "session";
-  id?: string;
-  timestamp?: string;
-  title?: string;
-}
-
-interface JsonlMessageLine {
-  type: "message";
-  message?: {
-    role?: string;
-    content?: unknown;
-  };
-}
-
-function messageText(content: unknown): string {
-  if (typeof content === "string") return content;
-  if (!Array.isArray(content)) return "";
-  const parts: string[] = [];
-  for (const block of content) {
-    if (typeof block === "string") {
-      parts.push(block);
-      continue;
-    }
-    if (block && typeof block === "object") {
-      const b = block as Record<string, unknown>;
-      if (typeof b.text === "string") parts.push(b.text);
-      else if (typeof b.content === "string") parts.push(b.content);
-    }
-  }
-  return parts.join("\n");
 }
 
 export interface SessionLoaderOptions {
@@ -94,49 +64,6 @@ async function collectSessionFiles(dir: string): Promise<string[]> {
   return files;
 }
 
-function parseJsonlSession(raw: string, filePath: string): LoadedSession | null {
-  const lines = raw.split("\n").filter((l) => l.trim());
-  if (lines.length === 0) return null;
-
-  let header: JsonlSessionHeader | null = null;
-  const turns: SessionTurn[] = [];
-  let turnIndex = 0;
-
-  for (const line of lines) {
-    let obj: Record<string, unknown>;
-    try {
-      obj = JSON.parse(line) as Record<string, unknown>;
-    } catch {
-      continue;
-    }
-
-    if (obj.type === "session" && !header) {
-      header = obj as unknown as JsonlSessionHeader;
-      continue;
-    }
-
-    if (obj.type === "message") {
-      const msg = (obj as unknown as JsonlMessageLine).message;
-      if (!msg?.role || !msg.content) continue;
-      if (msg.role !== "user" && msg.role !== "assistant") continue;
-      const text = messageText(msg.content);
-      if (!text.trim()) continue;
-      turns.push({ role: msg.role, content: text, turnIndex: turnIndex++ });
-    }
-  }
-
-  if (turns.length === 0) return null;
-
-  return {
-    id: header?.id ?? path.basename(filePath, path.extname(filePath)),
-    title: header?.title ?? "",
-    createdAt: header?.timestamp ?? "",
-    filePath,
-    modifiedAt: new Date(),
-    turns,
-  };
-}
-
 function parseJsonSession(raw: string, filePath: string): LoadedSession | null {
   let session: PiSessionFile;
   try {
@@ -167,6 +94,16 @@ function parseJsonSession(raw: string, filePath: string): LoadedSession | null {
   };
 }
 
+function parseJsonlSession(raw: string, filePath: string): LoadedSession | null {
+  const parsed = parseActiveBranchJsonl(raw, filePath);
+  if (!parsed) return null;
+  return {
+    ...parsed,
+    filePath,
+    modifiedAt: new Date(),
+  };
+}
+
 /**
  * Scan session files (JSON + JSONL, recursive subdirectories), parse Pi session
  * format, optionally filter by modified-after timestamp for incremental training.
@@ -190,17 +127,7 @@ export async function loadSessions(
     if (!st.isFile()) continue;
     if (modifiedAfter && st.mtime <= modifiedAfter) continue;
 
-    let raw: string;
-    try {
-      raw = await fs.readFile(filePath, "utf8");
-    } catch {
-      continue;
-    }
-
-    const isJsonl = filePath.endsWith(".jsonl");
-    const parsed = isJsonl
-      ? parseJsonlSession(raw, filePath)
-      : parseJsonSession(raw, filePath);
+    const parsed = await loadSessionFile(filePath);
 
     if (!parsed) continue;
     parsed.modifiedAt = st.mtime;
@@ -209,6 +136,30 @@ export async function loadSessions(
 
   sessions.sort((a, b) => a.modifiedAt.getTime() - b.modifiedAt.getTime());
   return deduplicateSessions(sessions);
+}
+
+export async function loadSessionFile(filePath: string): Promise<LoadedSession | null> {
+  let st: Awaited<ReturnType<typeof fs.stat>>;
+  try {
+    st = await fs.stat(filePath);
+  } catch {
+    return null;
+  }
+  if (!st.isFile()) return null;
+
+  let raw: string;
+  try {
+    raw = await fs.readFile(filePath, "utf8");
+  } catch {
+    return null;
+  }
+
+  const parsed = filePath.endsWith(".jsonl")
+    ? parseJsonlSession(raw, filePath)
+    : parseJsonSession(raw, filePath);
+  if (!parsed) return null;
+  parsed.modifiedAt = st.mtime;
+  return parsed;
 }
 
 function deduplicateSessions(sessions: LoadedSession[]): LoadedSession[] {

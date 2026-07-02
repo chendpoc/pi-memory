@@ -2,7 +2,7 @@
 
 [![npm](https://img.shields.io/npm/v/@chendpoc/pi-memory)](https://www.npmjs.com/package/@chendpoc/pi-memory)
 
-Local episodic memory for [Pi](https://pi.dev) coding agent. Automatically recalls past sessions, people, projects, and decisions during conversations.
+Local long-term memory for [Pi](https://pi.dev) coding agent. It closes the Write → Consolidate → Retrieve loop so past sessions, preferences, projects, and decisions can re-enter future conversations automatically.
 
 **No external binaries required** --- pure TypeScript, runs entirely inside Pi.
 
@@ -10,7 +10,9 @@ Local episodic memory for [Pi](https://pi.dev) coding agent. Automatically recal
 
 - **Implicit memory preflight** --- automatically detects memory-relevant questions (Chinese/English/Japanese) and injects `<private_memory>` context before each LLM call
 - **`memory_recall` tool** --- LLM can explicitly query the knowledge graph by entity/relationship
-- **`memory_append` tool** --- persist user preferences and facts to `MEMORY.md`
+- **`memory_append` tool** --- queues explicit user memories into stage1 so Phase2 can merge them safely
+- **Offline consolidation** --- `session_shutdown` only enqueues metadata; `pi-memory consolidate` drains queue, trains graph, and updates memory files
+- **MEMORY.md index** --- session-level cap injection plus scoped project memory files
 - **Local trainer** --- extracts entities, relations, and events from Pi session history (regex or LLM-powered)
 - **FTS5 search** --- SQLite full-text index for keyword fallback
 - **LLM rerank** --- reranks keyword search results using `deepseek-v4-flash` for relevance scoring
@@ -42,12 +44,17 @@ pi install npm:@chendpoc/pi-memory
 # 2. Train a memory bundle from your session history
 npx pi-memory train --full
 
-# 3. Restart Pi --- memory is now active
+# 3. Run first consolidation and install the daily scheduler
+npx pi-memory consolidate
+npx pi-memory setup-schedule
+
+# 4. Restart Pi --- memory is now active
 # Try asking: "What projects have I worked on?"
 ```
 
 After training, Pi will:
 - Show `status: ready, mode: local_graph` when you type `/memory`
+- Show queue/index details when you type `/memory --verbose`
 - Automatically inject past context when you ask relationship questions
 - Let the LLM call `memory_recall` for explicit lookups
 
@@ -55,18 +62,18 @@ After training, Pi will:
 
 ```
 Pi session files (.jsonl)
+    | session_shutdown
+    v
+pending_sessions queue (memories.sqlite)
+    | daily / manual consolidate
+    v
+stage1 outputs + graph train
     |
     v
-Trainer (regex or LLM extraction)
+MEMORY.md / project memory + graph.json + sessions.db
     |
     v
-graph.json bundle (entities + relations + events)
-    |
-    v
-LocalGraphQuerier (in-memory graph query)
-    |
-    v
-memory_recall tool / implicit preflight injection
+memory_recall tool / implicit preflight injection / MEMORY.md cap
 ```
 
 ### Query Backends
@@ -85,6 +92,7 @@ The default backend is LocalGraphQuerier --- pure TypeScript, no external depend
 | Command | Description |
 |---------|-------------|
 | `/memory` | Show service status, query mode, and bundle info |
+| `/memory --verbose` | Show consolidation queue, memory index usage, and recent job logs |
 
 ## CLI
 
@@ -101,6 +109,19 @@ npx pi-memory query '{"mode":"direct_relation","anchor_mentions":["Alice"]}'
 # Service diagnostics
 npx pi-memory health
 npx pi-memory status
+npx pi-memory memory-status
+
+# Offline consolidation
+npx pi-memory consolidate
+npx pi-memory consolidate --dry-run
+npx pi-memory consolidate --phase1-only
+npx pi-memory consolidate --phase2-only
+
+# OS scheduler
+npx pi-memory setup-schedule
+npx pi-memory setup-schedule --hour 4
+npx pi-memory setup-schedule --status
+npx pi-memory setup-schedule --remove
 
 # Manage bundles
 npx pi-memory install-bundle ./path/to/bundle
@@ -111,6 +132,8 @@ npx pi-memory index
 # Continuous training (watch mode)
 npx pi-memory train --watch
 ```
+
+`train --watch` is kept for compatibility. The long-term memory path is `pi-memory consolidate` plus the OS scheduler.
 
 ## Flags
 
@@ -132,9 +155,13 @@ pi --memory-helper-model deepseek/deepseek-v4-flash
 │   │   └── graph.json        # entities, edges, events
 │   ├── bundles/              # historical bundles
 │   ├── sessions.db           # FTS5 search index
+│   ├── memories.sqlite       # pending queue + stage1 outputs
+│   ├── workspace/            # raw memories + rollout summaries
+│   ├── projects/<hash>/      # project-scoped MEMORY.md files
+│   ├── consolidation.log     # structured consolidation logs
 │   └── .train_marker         # incremental training timestamp
 ├── agent/sessions/           # Pi session files (.jsonl)
-└── MEMORY.md                 # persistent notes (memory_append target)
+└── MEMORY.md                 # global memory index
 ```
 
 ## Programmatic API
@@ -183,6 +210,7 @@ export default piMemory;
 | `src/local/graphQuery.ts` | In-process graph query engine |
 | `src/adapters/piComplete.ts` | LLM adapter via `@earendil-works/pi-ai/compat` |
 | `src/service.ts` | Service lifecycle and query routing |
+| `src/consolidation/` | Queue, stage1, Phase2, scheduler, memory index, scope |
 | `src/trainer/` | Session loader, fact extraction, entity resolution, bundle builder |
 | `src/fallback/` | FTS5 index, keyword search, LLM rerank |
 | `src/preflight/` | Intent detection, private memory render/inject/strip |
@@ -194,8 +222,8 @@ On every LLM call, the `context` event:
 
 1. Detects memory-relevant intents via regex (Chinese/English/Japanese relationship patterns)
 2. Optionally calls a helper LLM (`compile_memory_intents` forced tool_use)
-3. Queries the graph for matching entities/relations
-4. Injects a `<private_memory>` block into the user message (deep copy, not persisted to session)
+3. Queries the graph for matching entities/relations and greps scoped MEMORY.md in parallel
+4. Injects the session memory index and dynamic recall into `<private_memory>` blocks (deep copy, not persisted to session)
 5. Results are cached per agent loop to avoid redundant queries during multi-tool turns
 
 ## Peer Dependencies

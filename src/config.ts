@@ -21,6 +21,32 @@ export interface TrainerConfig {
   auto_interval: string | null;
 }
 
+export interface ConsolidationScheduleConfig {
+  /** Local hour for the background consolidation job (default 3). */
+  hour: number;
+  /** Local minute for the background consolidation job (default 0). */
+  minute: number;
+  /** Structured JSONL log path (default ~/.pi/memory/consolidation.log). */
+  log_path: string;
+}
+
+export interface ConsolidationConfig {
+  /** Whether session_shutdown enqueues sessions for offline consolidation. */
+  enabled: boolean;
+  /** Minimum non-empty user turns before enqueue (default 3). */
+  min_user_turns: number;
+  /** MEMORY.md session cap by line count (default 200). */
+  memory_index_max_lines: number;
+  /** MEMORY.md session cap by UTF-8 bytes (default 25KB). */
+  memory_index_max_bytes: number;
+  /** Maximum stage1 rows selected per Phase2 run (default 20). */
+  phase2_top_n: number;
+  /** M4 prune threshold by last usage (default 90 days). */
+  max_unused_days: number;
+  /** Daily OS scheduler defaults. */
+  schedule: ConsolidationScheduleConfig;
+}
+
 export interface MemoryConfig {
   provider: MemoryProvider;
   tlmPath: string;
@@ -32,6 +58,7 @@ export interface MemoryConfig {
   sessionsDir: string;
   memoryMdPaths: string[];
   trainer: TrainerConfig;
+  consolidation: ConsolidationConfig;
 }
 
 export const defaultTrainerConfig: TrainerConfig = {
@@ -40,10 +67,37 @@ export const defaultTrainerConfig: TrainerConfig = {
   auto_interval: null,
 };
 
+export function defaultConsolidationConfig(
+  overrides: Partial<ConsolidationConfig> & {
+    schedule?: Partial<ConsolidationScheduleConfig>;
+  } = {},
+): ConsolidationConfig {
+  const defaultSchedule: ConsolidationScheduleConfig = {
+    hour: 3,
+    minute: 0,
+    log_path: path.join(defaultBundleRoot(), "consolidation.log"),
+  };
+  const { schedule, ...rest } = overrides;
+  return {
+    enabled: true,
+    min_user_turns: 3,
+    memory_index_max_lines: 200,
+    memory_index_max_bytes: 25_600,
+    phase2_top_n: 20,
+    max_unused_days: 90,
+    schedule: { ...defaultSchedule, ...schedule },
+    ...rest,
+  };
+}
+
 export function defaultMemoryConfig(
   overrides: Partial<MemoryConfig> = {},
 ): MemoryConfig {
-  const { trainer: trainerOverrides, ...rest } = overrides;
+  const {
+    trainer: trainerOverrides,
+    consolidation: consolidationOverrides,
+    ...rest
+  } = overrides;
   return {
     provider: "local",
     tlmPath: "tlm",
@@ -55,6 +109,7 @@ export function defaultMemoryConfig(
     sessionsDir: defaultSessionsDir(),
     memoryMdPaths: [path.join(defaultPiHome(), "MEMORY.md")],
     trainer: { ...defaultTrainerConfig, ...trainerOverrides },
+    consolidation: defaultConsolidationConfig(consolidationOverrides),
     ...rest,
   };
 }
@@ -65,6 +120,12 @@ export function normalizeMemoryConfig(
 ): MemoryConfig {
   const base = defaultMemoryConfig();
   const rawTrainer = (raw.trainer ?? {}) as Partial<TrainerConfig>;
+  const rawConsolidation = (raw.consolidation ?? {}) as
+    Partial<ConsolidationConfig> & {
+      schedule?: Partial<ConsolidationScheduleConfig>;
+    };
+  const rawSchedule = (rawConsolidation.schedule ?? {}) as
+    Partial<ConsolidationScheduleConfig>;
   return {
     provider: (raw.provider as MemoryProvider) ?? base.provider,
     tlmPath: expandPath(String(raw.tlmPath ?? base.tlmPath)),
@@ -87,6 +148,33 @@ export function normalizeMemoryConfig(
       auto_interval: rawTrainer.auto_interval !== undefined
         ? rawTrainer.auto_interval
         : base.trainer.auto_interval,
+    },
+    consolidation: {
+      enabled: rawConsolidation.enabled ?? base.consolidation.enabled,
+      min_user_turns: Number(
+        rawConsolidation.min_user_turns ?? base.consolidation.min_user_turns,
+      ),
+      memory_index_max_lines: Number(
+        rawConsolidation.memory_index_max_lines ??
+          base.consolidation.memory_index_max_lines,
+      ),
+      memory_index_max_bytes: Number(
+        rawConsolidation.memory_index_max_bytes ??
+          base.consolidation.memory_index_max_bytes,
+      ),
+      phase2_top_n: Number(
+        rawConsolidation.phase2_top_n ?? base.consolidation.phase2_top_n,
+      ),
+      max_unused_days: Number(
+        rawConsolidation.max_unused_days ?? base.consolidation.max_unused_days,
+      ),
+      schedule: {
+        hour: Number(rawSchedule.hour ?? base.consolidation.schedule.hour),
+        minute: Number(rawSchedule.minute ?? base.consolidation.schedule.minute),
+        log_path: expandPath(
+          String(rawSchedule.log_path ?? base.consolidation.schedule.log_path),
+        ),
+      },
     },
   };
 }

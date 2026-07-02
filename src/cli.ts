@@ -5,6 +5,15 @@ import path from "node:path";
 import { createStandaloneLLMClient } from "./adapters/piComplete.js";
 import { installBundle } from "./bundle/install.js";
 import type { MemoryConfig } from "./config.js";
+import { getMemoryIndexStats } from "./consolidation/memoryIndex.js";
+import { readRecentConsolidationLogs } from "./consolidation/log.js";
+import { getConsolidationStatus } from "./consolidation/enqueue.js";
+import {
+  defaultConsolidationDbPath,
+  runConsolidate,
+} from "./consolidation/scheduler/runConsolidate.js";
+import { setupSchedule } from "./consolidation/scheduler/setupSchedule.js";
+import type { SchedulePlatform } from "./consolidation/scheduler/types.js";
 import { loadMemoryConfig } from "./settings.js";
 import { openSessionIndex } from "./fallback/sessionIndex.js";
 import { SidecarClient } from "./sidecar/client.js";
@@ -70,6 +79,55 @@ async function main(): Promise<void> {
     await service.start();
     console.log(JSON.stringify(service.getStatus(), null, 2));
     await service.stop();
+    return;
+  }
+
+  if (cmd === "memory-status") {
+    const dbPath = defaultConsolidationDbPath(cfg);
+    const status = getConsolidationStatus(dbPath);
+    const memoryIndex = getMemoryIndexStats(cfg.memoryMdPaths, {
+      maxLines: cfg.consolidation.memory_index_max_lines,
+      maxBytes: cfg.consolidation.memory_index_max_bytes,
+    });
+    const recentLogs = await readRecentConsolidationLogs(
+      cfg.consolidation.schedule.log_path,
+      5,
+    );
+    const schedule = await readScheduleStatus(cfg);
+    console.log(JSON.stringify({
+      db_path: dbPath,
+      queue: status,
+      memory_index: memoryIndex,
+      schedule,
+      recent_logs: recentLogs,
+    }, null, 2));
+    return;
+  }
+
+  if (cmd === "consolidate") {
+    const flags = parseConsolidateFlags(rest);
+    const result = await runConsolidate({
+      config: cfg,
+      dryRun: flags.dryRun,
+      phase1Only: flags.phase1Only,
+      phase2Only: flags.phase2Only,
+    });
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  if (cmd === "setup-schedule") {
+    const flags = parseScheduleFlags(rest);
+    const platform = resolveSchedulePlatform();
+    const result = await setupSchedule({
+      hour: flags.hour ?? cfg.consolidation.schedule.hour,
+      minute: flags.minute ?? cfg.consolidation.schedule.minute,
+      logPath: cfg.consolidation.schedule.log_path,
+      dryRun: flags.dryRun,
+      remove: flags.remove,
+      status: flags.status,
+    }, platform);
+    console.log(JSON.stringify(result, null, 2));
     return;
   }
 
@@ -214,12 +272,98 @@ function parseTrainFlags(args: string[]): {
   return { sessionsDir, full, dryRun, noMerge, extractor, watch, model };
 }
 
+function parseConsolidateFlags(args: string[]): {
+  dryRun: boolean;
+  phase1Only: boolean;
+  phase2Only: boolean;
+} {
+  return {
+    dryRun: args.includes("--dry-run"),
+    phase1Only: args.includes("--phase1-only"),
+    phase2Only: args.includes("--phase2-only"),
+  };
+}
+
+function parseScheduleFlags(args: string[]): {
+  hour?: number;
+  minute?: number;
+  dryRun: boolean;
+  remove: boolean;
+  status: boolean;
+} {
+  let hour: number | undefined;
+  let minute: number | undefined;
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]!;
+    if (arg === "--hour" && i + 1 < args.length) {
+      hour = Number(args[++i]);
+      continue;
+    }
+    if (arg === "--minute" && i + 1 < args.length) {
+      minute = Number(args[++i]);
+      continue;
+    }
+  }
+  return {
+    hour,
+    minute,
+    dryRun: args.includes("--dry-run"),
+    remove: args.includes("--remove"),
+    status: args.includes("--status"),
+  };
+}
+
+function resolveSchedulePlatform(): SchedulePlatform {
+  if (process.platform === "darwin") return "darwin";
+  if (process.platform === "linux") return "linux";
+  throw new Error(`setup-schedule is not supported on ${process.platform}`);
+}
+
+function tryResolveSchedulePlatform(): SchedulePlatform | null {
+  if (process.platform === "darwin") return "darwin";
+  if (process.platform === "linux") return "linux";
+  return null;
+}
+
+async function readScheduleStatus(cfg: MemoryConfig) {
+  const platform = tryResolveSchedulePlatform();
+  if (!platform) {
+    return {
+      supported: false,
+      platform: process.platform,
+      files: [],
+    };
+  }
+  const result = await setupSchedule({
+    hour: cfg.consolidation.schedule.hour,
+    minute: cfg.consolidation.schedule.minute,
+    logPath: cfg.consolidation.schedule.log_path,
+    status: true,
+  }, platform);
+  return {
+    supported: true,
+    platform,
+    files: result.files,
+  };
+}
+
 function printHelp(): void {
   console.log(`pi-memory — local TLM episodic memory (mode B)
 
 Commands:
   health              Start sidecar (if bundle present) and print /health
   status              Print MemoryService status snapshot
+  memory-status       Print consolidation queue, MEMORY.md cap, schedule status, and recent job logs
+  consolidate         Run offline memory consolidation
+    --dry-run         Report planned work without writing MEMORY.md/stage1
+    --phase1-only     Drain queue and train graph only
+    --phase2-only     Consume existing stage1 rows only
+  setup-schedule      Install/update the OS user scheduler
+    --hour            Local hour (default from memory.json consolidation.schedule.hour)
+    --minute          Local minute (default from memory.json consolidation.schedule.minute)
+    --dry-run         Print files that would be written
+    --remove          Remove scheduler files
+    --status          Report scheduler file existence
   query               POST /query with JSON QueryIntent
   install-bundle      Copy a local bundle dir into ~/.pi/memory/current
   train               Build a bundle from session history (delta merge by default)

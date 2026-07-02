@@ -19,8 +19,11 @@ export type {
 } from "./types.js";
 
 export {
+  defaultConsolidationConfig,
   defaultMemoryConfig,
   normalizeMemoryConfig,
+  type ConsolidationConfig,
+  type ConsolidationScheduleConfig,
   type MemoryConfig,
   type MemoryProvider,
 } from "./config.js";
@@ -158,6 +161,7 @@ export {
 
 export {
   trainBundle,
+  loadSessionFile,
   loadSessions,
   extractFacts,
   extractFactsFromSessions,
@@ -239,3 +243,5 @@ export {
   type RerankOptions,
   type RankedResult,
 } from "./fallback/llmRerank.js";
+
+export * from "./consolidation/index.js";

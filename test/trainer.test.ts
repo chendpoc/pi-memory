@@ -35,6 +35,16 @@ async function writeSession(
   );
 }
 
+type JsonlLine = Record<string, unknown>;
+
+async function writeJsonlSession(dir: string, file: string, lines: JsonlLine[]): Promise<void> {
+  await fs.writeFile(
+    path.join(dir, `${file}.jsonl`),
+    lines.map((line) => JSON.stringify(line)).join("\n"),
+    "utf8",
+  );
+}
+
 // ── sessionLoader ──
 
 describe("sessionLoader", () => {
@@ -140,6 +150,78 @@ describe("sessionLoader", () => {
     const sessions = await loadSessions({ sessionsDir: tmpDir });
     expect(sessions).toHaveLength(1);
     expect(sessions[0]!.turns[0]!.content).toBe("block content");
+  });
+
+  it("loads linear jsonl sessions", async () => {
+    tmpDir = await makeTmpDir("pi-loader-jsonl-linear-");
+    await writeJsonlSession(tmpDir, "legacy", [
+      { type: "session", id: "jsonl-linear", title: "Linear JSONL", timestamp: "2026-06-01T10:00:00Z" },
+      { type: "message", message: { role: "user", content: "JSONL hello" } },
+      { type: "message", message: { role: "assistant", content: "Hello back" } },
+    ]);
+
+    const sessions = await loadSessions({ sessionsDir: tmpDir });
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0]!.id).toBe("jsonl-linear");
+    expect(sessions[0]!.turns).toHaveLength(2);
+  });
+
+  it("keeps only active branch messages for forked jsonl", async () => {
+    tmpDir = await makeTmpDir("pi-loader-jsonl-branch-");
+    await writeJsonlSession(tmpDir, "fork", [
+      { type: "session", id: "root", title: "Forked", timestamp: "2026-06-01T10:00:00Z" },
+      { type: "message", id: "m1", message: { role: "user", content: "Root turn" } },
+      { type: "message", id: "m2", parentId: "m1", message: { role: "assistant", content: "Main branch 1" } },
+      { type: "message", id: "m3", parentId: "m1", message: { role: "assistant", content: "Side branch 1" } },
+      { type: "message", id: "m4", parentId: "m2", message: { role: "user", content: "Main branch 2" } },
+      { type: "message", id: "m5", parentId: "m3", message: { role: "user", content: "Side branch 2" } },
+    ]);
+
+    const sessions = await loadSessions({ sessionsDir: tmpDir });
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0]!.turns.map((t) => t.content)).toEqual([
+      "Root turn",
+      "Side branch 1",
+      "Side branch 2",
+    ]);
+    expect(sessions[0]!.parentSessionId).toBeUndefined();
+    expect(sessions[0]!.id).toBe("m5");
+  });
+
+  it("uses explicit active leaf hint and parses parent session metadata", async () => {
+    tmpDir = await makeTmpDir("pi-loader-jsonl-active-");
+    await writeJsonlSession(tmpDir, "fork", [
+      { type: "session", id: "root", title: "Explicit Active", timestamp: "2026-06-01T10:00:00Z" },
+      { type: "message", id: "m1", message: { role: "user", content: "Root turn" } },
+      { type: "message", id: "m2", parentId: "m1", message: { role: "assistant", content: "Main branch" }, parentSessionId: "parent-session", parentSessionFile: "parent.jsonl" },
+      { type: "message", id: "m3", parentId: "m1", activeSessionId: "m2", message: { role: "assistant", content: "Side branch should ignore" } },
+    ]);
+
+    const sessions = await loadSessions({ sessionsDir: tmpDir });
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0]!.turns.map((t) => t.content)).toEqual(["Root turn", "Main branch"]);
+    expect(sessions[0]!.parentSessionId).toBe("parent-session");
+    expect(sessions[0]!.parentSessionFile).toBe("parent.jsonl");
+    expect(sessions[0]!.id).toBe("m2");
+  });
+
+  it("parses parentSession header path as parent session metadata", async () => {
+    tmpDir = await makeTmpDir("pi-loader-jsonl-parent-session-");
+    await writeJsonlSession(tmpDir, "child", [
+      {
+        type: "session",
+        id: "child",
+        title: "Child",
+        timestamp: "2026-06-01T10:00:00Z",
+        parentSession: "/tmp/2026-06-01T00-00-00Z_019f-parent.jsonl",
+      },
+      { type: "message", id: "m1", message: { role: "user", content: "Child turn" } },
+    ]);
+
+    const sessions = await loadSessions({ sessionsDir: tmpDir });
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0]!.parentSessionId).toBe("019f-parent");
+    expect(sessions[0]!.parentSessionFile).toBe("/tmp/2026-06-01T00-00-00Z_019f-parent.jsonl");
   });
 });
 

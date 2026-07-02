@@ -129,7 +129,7 @@ export async function trainBundle(
   };
 }
 
-export { loadSessions } from "./sessionLoader.js";
+export { loadSessionFile, loadSessions } from "./sessionLoader.js";
 export type { LoadedSession, SessionTurn, SessionLoaderOptions } from "./sessionLoader.js";
 export { extractFacts, extractFactsFromSessions, RELATION_CATALOG, ALL_RELATIONS } from "./extractFacts.js";
 export type {

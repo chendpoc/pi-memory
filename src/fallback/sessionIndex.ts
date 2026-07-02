@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
 import type { SessionSearchHit } from "./sessionSearch.js";
+import { messageText, parseJsonlSession as parseActiveBranchJsonl } from "../session/activeBranch.js";
 
 export interface SqliteDatabase {
   pragma(sql: string): unknown;
@@ -42,21 +43,6 @@ interface PiSessionFile {
   title?: string;
   created_at?: string;
   messages?: PiSessionMessage[];
-}
-
-function messageText(content: unknown): string {
-  if (typeof content === "string") return content;
-  if (!Array.isArray(content)) return "";
-  const parts: string[] = [];
-  for (const block of content) {
-    if (typeof block === "string") { parts.push(block); continue; }
-    if (block && typeof block === "object") {
-      const b = block as Record<string, unknown>;
-      if (typeof b.text === "string") parts.push(b.text);
-      else if (typeof b.content === "string") parts.push(b.content);
-    }
-  }
-  return parts.join("\n");
 }
 
 export interface SessionIndex {
@@ -167,40 +153,6 @@ export function openSessionIndex(dbPath: string, injectedDb?: SqliteDatabase): S
     return files;
   }
 
-  function parseJsonlMessages(raw: string, filePath: string): {
-    id: string; title: string; createdAt: string;
-    messages: Array<{ role: string; content: string; index: number }>;
-  } | null {
-    const lines = raw.split("\n").filter((l) => l.trim());
-    if (lines.length === 0) return null;
-    let id = path.basename(filePath, path.extname(filePath));
-    let title = "";
-    let createdAt = "";
-    const messages: Array<{ role: string; content: string; index: number }> = [];
-    let idx = 0;
-    for (const line of lines) {
-      let obj: Record<string, unknown>;
-      try { obj = JSON.parse(line) as Record<string, unknown>; } catch { continue; }
-      if (obj.type === "session") {
-        id = (obj.id as string) ?? id;
-        title = (obj.title as string) ?? "";
-        createdAt = (obj.timestamp as string) ?? "";
-        continue;
-      }
-      if (obj.type === "message") {
-        const msg = (obj as { message?: PiSessionMessage }).message;
-        if (!msg?.role || !msg.content) continue;
-        if (msg.role !== "user" && msg.role !== "assistant") continue;
-        const text = messageText(msg.content);
-        if (text.trim()) {
-          messages.push({ role: msg.role, content: text, index: idx++ });
-        }
-      }
-    }
-    if (messages.length === 0) return null;
-    return { id, title, createdAt, messages };
-  }
-
   async function loadSessionFiles(sessionsDir: string, modifiedAfter?: Date | null): Promise<Array<{
     id: string;
     title: string;
@@ -223,8 +175,19 @@ export function openSessionIndex(dbPath: string, injectedDb?: SqliteDatabase): S
       try { raw = await fs.readFile(filePath, "utf8"); } catch { continue; }
 
       if (filePath.endsWith(".jsonl")) {
-        const parsed = parseJsonlMessages(raw, filePath);
-        if (parsed) results.push(parsed);
+        const parsed = parseActiveBranchJsonl(raw, filePath);
+        if (!parsed) continue;
+        const messages = parsed.turns.map((turn) => ({
+          role: turn.role,
+          content: turn.content,
+          index: turn.turnIndex,
+        }));
+        results.push({
+          id: parsed.id,
+          title: parsed.title,
+          createdAt: parsed.createdAt,
+          messages,
+        });
       } else {
         let session: PiSessionFile;
         try { session = JSON.parse(raw) as PiSessionFile; } catch { continue; }

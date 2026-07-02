@@ -7,6 +7,7 @@ import {
   defaultMemoryConfig,
   normalizeMemoryConfig,
   type ExtractorType,
+  type ConsolidationConfig,
   type MemoryConfig,
   type MemoryProvider,
   type TrainerConfig,
@@ -31,6 +32,7 @@ export interface MemorySettingsFile {
   /** OpenAI-compatible endpoint config (vLLM, SGLang, LM Studio, etc.) */
   vllm?: Partial<OpenAICompatConfig>;
   trainer?: Partial<TrainerConfig>;
+  consolidation?: Partial<ConsolidationConfig>;
 }
 
 export interface LoadedMemorySettings {
@@ -70,11 +72,19 @@ export function loadMemorySettings(
   configPath = defaultMemoryConfigPath(),
 ): LoadedMemorySettings {
   const fileSettings = readMemorySettingsFile(configPath);
-  const { helperModel, ollama, vllm, trainer, ...configFields } = fileSettings;
+  const {
+    helperModel,
+    ollama,
+    vllm,
+    trainer,
+    consolidation,
+    ...configFields
+  } = fileSettings;
 
   const config = normalizeMemoryConfig({
     ...configFields,
     ...(trainer ? { trainer } : {}),
+    ...(consolidation ? { consolidation } : {}),
     ...overrides,
   } as Partial<MemoryConfig> & Record<string, unknown>);
 
@@ -143,4 +153,9 @@ export function saveMemorySettings(
 }
 
 export { defaultMemoryConfig };
-export type { ExtractorType, MemoryProvider, TrainerConfig };
+export type {
+  ConsolidationConfig,
+  ExtractorType,
+  MemoryProvider,
+  TrainerConfig,
+};

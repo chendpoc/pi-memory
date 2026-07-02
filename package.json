@@ -1,6 +1,6 @@
 {
   "name": "@chendpoc/pi-memory",
-  "version": "0.1.12",
+  "version": "0.2.0",
   "description": "Local episodic memory for Pi coding agent — knowledge graph + memory_recall tool + implicit preflight",
   "type": "module",
   "main": "./dist/index.js",

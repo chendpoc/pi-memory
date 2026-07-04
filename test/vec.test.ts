@@ -58,7 +58,7 @@ describe("VecStore", () => {
     dbPath = join(tmpDir, "memory.db");
     const store = getVecStore(dbPath);
 
-    await store.reindex([
+    const outcome = await store.reindex([
       {
         id: "pref-1",
         content: "User prefers TypeScript strict mode",
@@ -73,9 +73,43 @@ describe("VecStore", () => {
       },
     ]);
 
+    expect(outcome.indexed).toBe(2);
+    expect(outcome.indexGeneration).toBe(1);
+
     const results = await store.query("User prefers TypeScript strict mode");
     expect(results.length).toBeGreaterThan(0);
     expect(results[0]?.content).toContain("TypeScript strict mode");
     expect(results[0]?.relevance).toBeGreaterThan(0);
+  });
+
+  it("clears chunks when stored embedding meta mismatches", async () => {
+    tmpDir = mkdtempSync(join(tmpdir(), "pi-memory-vec-meta-"));
+    dbPath = join(tmpDir, "memory.vec.sqlite");
+    const store = getVecStore(dbPath);
+
+    await store.reindex([
+      {
+        id: "a",
+        content: "alpha fact",
+        source: "MEMORY.md",
+        timestamp: "2026-07-04T00:00:00.000Z",
+      },
+    ]);
+
+    const db = (store as unknown as { db: import("better-sqlite3").Database }).db;
+    db.prepare("UPDATE meta SET value = ? WHERE key = 'embedding_model'").run("stale-model");
+
+    const outcome = await store.reindex([
+      {
+        id: "b",
+        content: "beta fact",
+        source: "MEMORY.md",
+        timestamp: "2026-07-04T01:00:00.000Z",
+      },
+    ]);
+
+    expect(outcome.indexed).toBe(1);
+    const rows = db.prepare("SELECT chunk_id FROM memory_chunks").all() as Array<{ chunk_id: string }>;
+    expect(rows.map((row) => row.chunk_id)).toEqual(["b"]);
   });
 });

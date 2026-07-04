@@ -2,6 +2,7 @@ import { createRequire } from "node:module";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 
+import type { Embedder } from "../../../adapters/embed/types.js";
 import type { IndexDocument, MemoryEntry } from "../../protocol.js";
 import { CANDIDATE_POOL_MULTIPLIER, DEFAULT_TOP_K } from "./constants.js";
 import { getEmbedder } from "./embedder.js";
@@ -15,6 +16,17 @@ type ChunkRow = {
   source: string;
   timestamp: string;
   embedding: Buffer;
+};
+
+export type StoredEmbeddingMeta = {
+  model: string;
+  provider: string;
+  dim: number;
+};
+
+export type ReindexOutcome = {
+  indexed: number;
+  indexGeneration: number;
 };
 
 function embeddingToBlob(embedding: Float32Array): Buffer {
@@ -49,18 +61,69 @@ export class VecStore {
         embedding BLOB NOT NULL
       );
     `);
-
-    const embedder = getEmbedder();
-    const upsertMeta = this.db.prepare(
-      "INSERT INTO meta(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-    );
-    upsertMeta.run("embedding_model", embedder.model);
-    upsertMeta.run("embedding_provider", embedder.provider);
-    upsertMeta.run("embedding_dim", String(embedder.dim));
   }
 
-  async reindex(documents: IndexDocument[]): Promise<number> {
+  getStoredEmbeddingMeta(): StoredEmbeddingMeta | null {
+    const read = (key: string): string | undefined =>
+      this.db.prepare("SELECT value FROM meta WHERE key = ?").pluck().get(key) as string | undefined;
+
+    const model = read("embedding_model");
+    const provider = read("embedding_provider");
+    const dimRaw = read("embedding_dim");
+    if (!model || !provider || !dimRaw) return null;
+
+    const dim = Number.parseInt(dimRaw, 10);
+    if (!Number.isFinite(dim)) return null;
+    return { model, provider, dim };
+  }
+
+  embeddingMetaMatches(embedder: Embedder): boolean {
+    const stored = this.getStoredEmbeddingMeta();
+    if (!stored) return true;
+    return (
+      stored.model === embedder.model &&
+      stored.provider === embedder.provider &&
+      stored.dim === embedder.dim
+    );
+  }
+
+  getIndexGeneration(): number {
+    const raw = this.db.prepare("SELECT value FROM meta WHERE key = 'index_generation'").pluck().get();
+    return Number(raw ?? "0");
+  }
+
+  private clearChunksIfEmbeddingMismatch(embedder: Embedder): void {
+    if (this.embeddingMetaMatches(embedder)) return;
+    this.db.prepare("DELETE FROM memory_chunks").run();
+  }
+
+  private bumpIndexGeneration(): number {
+    const generation = this.getIndexGeneration() + 1;
+    this.db
+      .prepare("INSERT INTO meta(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+      .run("index_generation", String(generation));
+    return generation;
+  }
+
+  private writeEmbeddingMeta(embedder: Embedder): void {
+    const upsert = this.db.prepare(
+      "INSERT INTO meta(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+    );
+    upsert.run("embedding_model", embedder.model);
+    upsert.run("embedding_provider", embedder.provider);
+    upsert.run("embedding_dim", String(embedder.dim));
+  }
+
+  async reindex(documents: IndexDocument[]): Promise<ReindexOutcome> {
     const embedder = getEmbedder();
+    this.clearChunksIfEmbeddingMismatch(embedder);
+
+    if (documents.length === 0) {
+      const indexGeneration = this.getIndexGeneration();
+      this.writeEmbeddingMeta(embedder);
+      return { indexed: 0, indexGeneration };
+    }
+
     const embeddings = await embedder.embedBatch(documents.map((doc) => doc.content));
 
     const sync = this.db.transaction((docs: IndexDocument[], vectors: Float32Array[]) => {
@@ -89,23 +152,9 @@ export class VecStore {
         upsert.run(doc.id, doc.content, doc.source, doc.timestamp, embeddingToBlob(vectors[i]!));
       }
 
-      const generation = Number(
-        this.db.prepare("SELECT value FROM meta WHERE key = 'index_generation'").pluck().get() ?? "0",
-      );
-      this.db
-        .prepare("INSERT INTO meta(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
-        .run("index_generation", String(generation + 1));
-      this.db
-        .prepare("INSERT INTO meta(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
-        .run("embedding_model", embedder.model);
-      this.db
-        .prepare("INSERT INTO meta(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
-        .run("embedding_provider", embedder.provider);
-      this.db
-        .prepare("INSERT INTO meta(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
-        .run("embedding_dim", String(embedder.dim));
-
-      return docs.length;
+      const indexGeneration = this.bumpIndexGeneration();
+      this.writeEmbeddingMeta(embedder);
+      return { indexed: docs.length, indexGeneration };
     });
 
     return sync(documents, embeddings);
@@ -113,6 +162,8 @@ export class VecStore {
 
   async query(queryText: string, topK = DEFAULT_TOP_K): Promise<MemoryEntry[]> {
     const embedder = getEmbedder();
+    this.clearChunksIfEmbeddingMismatch(embedder);
+
     const queryEmbedding = await embedder.embed(queryText);
     const poolSize = topK * CANDIDATE_POOL_MULTIPLIER;
 

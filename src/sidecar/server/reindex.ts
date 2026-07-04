@@ -10,11 +10,12 @@ export async function handleReindex(
   ctx: ReindexContext,
   documents: IndexDocument[] = [],
 ): Promise<Extract<SidecarResponse, { type: "reindex_ok" }>> {
-  if (documents.length === 0) {
-    return { type: "reindex_ok", request_id: requestId, indexed: 0 };
-  }
-
   const store = getVecStore(ctx.dbPath);
-  const indexed = await store.reindex(documents);
-  return { type: "reindex_ok", request_id: requestId, indexed };
+  const outcome = await store.reindex(documents);
+  return {
+    type: "reindex_ok",
+    request_id: requestId,
+    indexed: outcome.indexed,
+    index_generation: outcome.indexGeneration,
+  };
 }

@@ -20,7 +20,7 @@ export type SidecarRequest =
 export type SidecarResponse =
   | { type: "pong" }
   | { type: "result"; request_id: string; results: MemoryEntry[] }
-  | { type: "reindex_ok"; request_id: string; indexed: number }
+  | { type: "reindex_ok"; request_id: string; indexed: number; index_generation: number }
   | { type: "error"; request_id?: string; error: string };
 
 export function isErrorResponse(res: SidecarResponse): res is Extract<SidecarResponse, { type: "error" }> {

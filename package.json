@@ -68,7 +68,8 @@
   "pi": {
     "extensions": [
       "./dist/pi-extension.js"
-    ]
+    ],
+    "image": "https://raw.githubusercontent.com/chendpoc/pi-memory/main/assets/gallery/pi-memory-gallery.png"
   },
   "peerDependencies": {
     "@earendil-works/pi-agent-core": "*",

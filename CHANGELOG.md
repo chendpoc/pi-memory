@@ -1,5 +1,14 @@
 # @chendpoc/pi-memory
 
+## 0.2.1
+
+### Patch Changes
+
+- Preflight latency: split `forceEpisodic` / `forceIntent`, on-demand QueryIntent (default 0 retries), sidecar warm start, and per-session intent LRU cache.
+- Add `PI_MEMORY_INTENT_RETRIES`, `PI_MEMORY_WARM_SIDECAR`, and `PI_MEMORY_INTENT_CACHE` env toggles.
+- Skip episodic Preflight when MEMORY is empty; debug logs include `intent_skipped` and `intent_cache_hit`.
+- Rewrite README with positioning, before/after agent behavior, competitor comparison, and roadmap; add `doc/README-zh.md`, `doc/ROADMAP.md`, and `doc/ROADMAP-zh.md`.
+
 ## 0.2.0
 
 ### Minor Changes

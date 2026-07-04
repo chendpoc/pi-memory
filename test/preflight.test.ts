@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildRetrievalQuery,
-  QueryIntentSchema,
+  parseQueryIntent,
   shouldExtractIntent,
   shouldRunEpisodicPreflight,
 } from "../src/preflight/queryIntent.js";
@@ -10,7 +10,7 @@ import {
 describe("QueryIntentSchema", () => {
   it("accepts structured intent fields", () => {
     expect(
-      QueryIntentSchema.parse({ what: "testing framework", who: "team", where: "project" }),
+      parseQueryIntent({ what: "testing framework", who: "team", where: "project" }),
     ).toEqual({
       what: "testing framework",
       who: "team",
@@ -19,13 +19,13 @@ describe("QueryIntentSchema", () => {
   });
 
   it("accepts raw_query", () => {
-    expect(QueryIntentSchema.parse({ raw_query: "remember last time" })).toEqual({
+    expect(parseQueryIntent({ raw_query: "remember last time" })).toEqual({
       raw_query: "remember last time",
     });
   });
 
   it("rejects unknown keys", () => {
-    expect(() => QueryIntentSchema.parse({ query: "hello" })).toThrow();
+    expect(() => parseQueryIntent({ query: "hello" })).toThrow();
   });
 });
 

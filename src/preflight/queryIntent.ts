@@ -1,5 +1,6 @@
 import compact from "lodash/compact.js";
-import { z } from "zod";
+import { Type, type Static } from "typebox";
+import { Value } from "typebox/value";
 
 import {
   MEMORY_CUE_RE,
@@ -9,16 +10,24 @@ import {
 import type { LlmClient } from "../adapters/llm/types.js";
 
 /** Structured intent from helper LLM — simpler than crafting a search query directly. */
-export const QueryIntentSchema = z
-  .object({
-    raw_query: z.string().optional(),
-    what: z.string().optional(),
-    who: z.string().optional(),
-    where: z.string().optional(),
-  })
-  .strict();
+export const QueryIntentSchema = Type.Object(
+  {
+    raw_query: Type.Optional(Type.String()),
+    what: Type.Optional(Type.String()),
+    who: Type.Optional(Type.String()),
+    where: Type.Optional(Type.String()),
+  },
+  { additionalProperties: false },
+);
 
-export type QueryIntent = z.infer<typeof QueryIntentSchema>;
+export type QueryIntent = Static<typeof QueryIntentSchema>;
+
+export function parseQueryIntent(value: unknown): QueryIntent {
+  if (!Value.Check(QueryIntentSchema, value)) {
+    throw new Error("Invalid QueryIntent");
+  }
+  return value;
+}
 
 const INTENT_PROMPT = `Extract a JSON object for memory retrieval from the user message.
 Return ONLY valid JSON with optional keys: raw_query, what, who, where.
@@ -73,7 +82,7 @@ export async function extractQueryIntent(
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const raw = await llm.complete(`${INTENT_PROMPT}${userInput}`, options.signal);
-      return QueryIntentSchema.parse(extractJsonObject(raw));
+      return parseQueryIntent(extractJsonObject(raw));
     } catch {
       // one retry, then fallback
     }

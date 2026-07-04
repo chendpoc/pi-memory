@@ -1,10 +1,5 @@
-const PRIVATE_MEMORY_OPEN = "<private_memory>";
-const PRIVATE_MEMORY_CLOSE = "</private_memory>";
+import { PRIVATE_MEMORY_CLOSE, PRIVATE_MEMORY_OPEN } from "../constants/preflight.js";
 
-/**
- * Remove all well-formed <private_memory>…</private_memory> blocks from text.
- * Unterminated open markers are left untouched (fail-safe).
- */
 export function stripPrivateMemory(text: string): string {
   let s = text;
   for (;;) {
@@ -27,10 +22,6 @@ export function stripPrivateMemory(text: string): string {
   }
 }
 
-/**
- * Inject private memory context before the user payload in a scaffolded message.
- * Mirrors Kocoro injectPrivateMemoryContext.
- */
 export function injectPrivateMemoryContext(
   scaffolded: string,
   userPayload: string,
@@ -38,6 +29,7 @@ export function injectPrivateMemoryContext(
 ): string {
   const ctx = privateContext.trim();
   if (!ctx) return scaffolded;
+
   if (userPayload && scaffolded.endsWith(userPayload)) {
     return (
       scaffolded.slice(0, scaffolded.length - userPayload.length) +
@@ -46,5 +38,6 @@ export function injectPrivateMemoryContext(
       userPayload
     );
   }
-  return scaffolded + "\n\n" + ctx;
+
+  return `${scaffolded}\n\n${ctx}`;
 }

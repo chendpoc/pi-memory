@@ -92,6 +92,11 @@ export class VecStore {
     return Number(raw ?? "0");
   }
 
+  getChunkCount(): number {
+    const row = this.db.prepare("SELECT COUNT(*) AS count FROM memory_chunks").get() as { count: number };
+    return row.count;
+  }
+
   private clearChunksIfEmbeddingMismatch(embedder: Embedder): void {
     if (this.embeddingMetaMatches(embedder)) return;
     this.db.prepare("DELETE FROM memory_chunks").run();

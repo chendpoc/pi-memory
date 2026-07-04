@@ -11,6 +11,14 @@ const NOOP_LLM: LlmClient = {
   },
 };
 
+export type ConsolidateJobStats = {
+  entriesBefore: number;
+  entriesAfter: number;
+  overflowBefore: number;
+  overflowAfter: number;
+  indexGeneration?: number;
+};
+
 export type RunConsolidateJobOptions = {
   store: MemoryStore;
   agentDir: string;
@@ -22,7 +30,7 @@ export type RunConsolidateJobOptions = {
 
 export type RunConsolidateJobResult =
   | { status: "skipped"; reason: "conditions_not_met" | "already_consolidating" }
-  | { status: "consolidated" }
+  | { status: "consolidated"; stats: ConsolidateJobStats }
   | { status: "failed"; error: Error };
 
 export async function runConsolidateJob(
@@ -34,14 +42,28 @@ export async function runConsolidateJob(
     return { status: "skipped", reason: "conditions_not_met" };
   }
 
+  const before = await opts.store.getStats();
+
   try {
     await opts.store.consolidate(llm);
 
+    let indexGeneration: number | undefined;
     if (opts.reindex !== false) {
-      await syncSidecarIndex(opts.agentDir, opts.store);
+      indexGeneration = await syncSidecarIndex(opts.agentDir, opts.store);
     }
 
-    return { status: "consolidated" };
+    const after = await opts.store.getStats();
+
+    return {
+      status: "consolidated",
+      stats: {
+        entriesBefore: before.entryCount,
+        entriesAfter: after.entryCount,
+        overflowBefore: before.overflowFileCount,
+        overflowAfter: after.overflowFileCount,
+        indexGeneration,
+      },
+    };
   } catch (error) {
     return {
       status: "failed",
@@ -50,9 +72,10 @@ export async function runConsolidateJob(
   }
 }
 
-async function syncSidecarIndex(agentDir: string, store: MemoryStore): Promise<void> {
+async function syncSidecarIndex(agentDir: string, store: MemoryStore): Promise<number> {
   const sidecar = resolveSidecarPaths(agentDir);
   await ensureSidecarRunning(sidecar);
   const result = await reindex(sidecar.socketPath, await store.exportForIndex());
   sidecarQueryCache.onReindexComplete(agentDir, result.index_generation);
+  return result.index_generation;
 }

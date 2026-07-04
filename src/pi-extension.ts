@@ -261,6 +261,7 @@ export default function piMemoryExtension(pi: ExtensionAPI): void {
   registerCommands(pi, {
     getMemoryStore: () => memoryStore,
     onRemembered: preloadSessionMemoryCap,
+    getAgentDir: () => memoryStore?.agentDir ?? getAgentDir(),
   });
 
   registerCompactHandlers(pi, {

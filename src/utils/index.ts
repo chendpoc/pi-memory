@@ -19,6 +19,8 @@ export {
 
 export { cleanupSocketFiles, removeSocketFile, secureSocketPath } from "./socket.js";
 
+export { debugMemory, isMemoryDebugEnabled } from "./debugLog.js";
+
 export {
   buildConsolidateCliArgs,
   defaultConsolidateSchedulerPaths,

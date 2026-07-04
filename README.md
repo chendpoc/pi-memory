@@ -17,6 +17,8 @@ Cross-session episodic memory for the [Pi coding agent](https://pi.dev): **MEMOR
 2. **Compaction** — dual-purpose summary → `appendFromCompaction` (Compact Delta for subagents)
 3. **Consolidate** — OR trigger (overflow ≥12 / 7 days / daily 03:00 cron)
 
+**Diagnostics:** **`/memory-status`** in session, or **`pi-memory status`** on the CLI.
+
 **Shutdown Queue** — `session_shutdown` appends metadata to `.memory_shutdown_queue.jsonl` (offline worker reserved).
 
 ## Setup
@@ -36,21 +38,24 @@ pnpm build
 
 | Variable | Purpose |
 |----------|---------|
-| `PI_MEMORY_EMBEDDER` | `hash` \| `ollama` \| `openai` |
+| `PI_MEMORY_EMBEDDER` | `hash` (default, offline) \| `ollama` \| `openai` |
 | `PI_MEMORY_HELPER_MODEL` | Helper LLM for QueryIntent + consolidate |
 | `PI_MEMORY_PREFLIGHT_TIMEOUT_MS` | Preflight budget (default 800) |
 | `PI_MEMORY_REINDEX_DEBOUNCE_MS` | Debounced reindex after writes |
+| `PI_MEMORY_DEBUG` | `1` enables debug stderr logs (preflight timings) |
 
 See [`.env.example`](./.env.example) for full list.
 
 ## CLI
 
-Daily consolidate via OS scheduler:
-
 ```bash
+pi-memory status
 pi-memory consolidate --cron
 pi-memory consolidate --force --verbose
 ```
+
+`status` prints MEMORY.md, sidecar, and vector index diagnostics (colored on TTY stderr).  
+Set `PI_MEMORY_DEBUG=1` for preflight timing logs during agent sessions.
 
 Templates: [`templates/`](./templates/) (launchd, crontab, schtasks).
 

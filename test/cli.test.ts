@@ -11,6 +11,13 @@ describe("parseCliArgs", () => {
     });
   });
 
+  it("parses status command", () => {
+    expect(parseCliArgs(["status", "--verbose"])).toEqual({
+      command: "status",
+      options: { verbose: true, agentDir: undefined },
+    });
+  });
+
   it("parses --agent-dir", () => {
     expect(parseCliArgs(["consolidate", "--agent-dir", "~/.pi/agent"])).toEqual({
       command: "consolidate",

@@ -55,7 +55,11 @@ describe("runConsolidateJob", () => {
       reindex: false,
     });
 
-    expect(result).toEqual({ status: "consolidated" });
+    expect(result.status).toBe("consolidated");
+    if (result.status === "consolidated") {
+      expect(result.stats.entriesAfter).toBeGreaterThanOrEqual(1);
+      expect(result.stats.overflowAfter).toBe(0);
+    }
     expect((await store.getStats()).lastConsolidatedAt).toBeTruthy();
   });
 });

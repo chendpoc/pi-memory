@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Install:
+    1. Replace __HOME__, __NODE__, __CLI__ below.
+    2. cp templates/com.pi.memory.consolidate.plist.example \
+         ~/Library/LaunchAgents/com.pi.memory.consolidate.plist
+    3. launchctl load ~/Library/LaunchAgents/com.pi.memory.consolidate.plist
+    4. launchctl start com.pi.memory.consolidate   # manual test
+
+  Logs: __HOME__/.pi/logs/consolidate.{log,err.log}
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.pi.memory.consolidate</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>__NODE__</string>
+    <string>__CLI__</string>
+    <string>consolidate</string>
+    <string>--cron</string>
+    <string>--verbose</string>
+  </array>
+
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key>
+    <integer>3</integer>
+    <key>Minute</key>
+    <integer>0</integer>
+  </dict>
+
+  <key>StandardOutPath</key>
+  <string>__HOME__/.pi/logs/consolidate.log</string>
+  <key>StandardErrorPath</key>
+  <string>__HOME__/.pi/logs/consolidate.err.log</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PI_MEMORY_ENV_FILE</key>
+    <string>__HOME__/.pi/.env</string>
+    <key>PI_MEMORY_AGENT_DIR</key>
+    <string>__HOME__/.pi/agent</string>
+  </dict>
+</dict>
+</plist>

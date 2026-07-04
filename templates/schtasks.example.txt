@@ -1,0 +1,32 @@
+# Windows Task Scheduler — daily 03:00 consolidate
+#
+# Prerequisites:
+#   1. pnpm build
+#   2. Edit templates/consolidate.cmd.example (__NODE__, __CLI__)
+#   3. mkdir %USERPROFILE%\.pi\logs
+#
+# Option A — schtasks with wrapper script (recommended):
+#
+#   schtasks /Create ^
+#     /TN "PiMemoryConsolidate" ^
+#     /TR "C:\path\to\pi-memory\templates\consolidate.cmd" ^
+#     /SC DAILY /ST 03:00 /F
+#
+# Option B — schtasks inline (replace paths):
+#
+#   schtasks /Create ^
+#     /TN "PiMemoryConsolidate" ^
+#     /TR "\"C:\Program Files\nodejs\node.exe\" \"C:\path\to\pi-memory\dist\cli.js\" consolidate --cron --verbose" ^
+#     /SC DAILY /ST 03:00 /F
+#
+# Set env vars for the task (Task Scheduler → Properties → Environment):
+#   PI_MEMORY_ENV_FILE = %USERPROFILE%\.pi\.env
+#   PI_MEMORY_AGENT_DIR = %USERPROFILE%\.pi\agent
+#
+# Manual test:
+#   schtasks /Run /TN "PiMemoryConsolidate"
+#
+# Remove:
+#   schtasks /Delete /TN "PiMemoryConsolidate" /F
+#
+# Logs: %USERPROFILE%\.pi\logs\consolidate.log

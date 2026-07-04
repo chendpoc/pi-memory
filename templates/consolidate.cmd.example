@@ -1,0 +1,13 @@
+@echo off
+REM Windows wrapper for daily consolidate (Task Scheduler).
+REM Replace __NODE__ and __CLI__ before use.
+REM
+REM Install (elevated cmd):
+REM   schtasks /Create /TN "PiMemoryConsolidate" /TR "\"%CD%\consolidate.cmd\"" /SC DAILY /ST 03:00 /F
+REM
+REM Or point /TR directly at this script after editing paths below.
+
+set PI_MEMORY_ENV_FILE=%USERPROFILE%\.pi\.env
+set PI_MEMORY_AGENT_DIR=%USERPROFILE%\.pi\agent
+
+"__NODE__" "__CLI__" consolidate --cron --verbose >> "%USERPROFILE%\.pi\logs\consolidate.log" 2>> "%USERPROFILE%\.pi\logs\consolidate.err.log"

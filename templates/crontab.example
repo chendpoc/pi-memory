@@ -1,0 +1,10 @@
+# Daily 03:00 consolidate via OS cron (Linux/macOS crontab)
+#
+# Install:
+#   1. Replace paths below, then: crontab -e
+#   2. Ensure ~/.pi/logs exists: mkdir -p ~/.pi/logs
+#
+# __NODE__ = which node
+# __CLI__  = path to pi-memory/dist/cli.js (after pnpm build)
+#
+0 3 * * * PI_MEMORY_ENV_FILE=$HOME/.pi/.env PI_MEMORY_AGENT_DIR=$HOME/.pi/agent __NODE__ __CLI__ consolidate --cron --verbose >> $HOME/.pi/logs/consolidate.log 2>&1

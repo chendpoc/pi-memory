@@ -42,6 +42,8 @@ describe("gatherMemoryStatus", () => {
     expect(report.sidecar.running).toBe(false);
     expect(report.vectorIndex.exists).toBe(false);
     expect(report.embedder.provider).toBe("hash");
+    expect(report.embedder.model).toBe("hash/dev");
+    expect(report.embedder.dim).toBe(768);
   });
 });
 

@@ -1,4 +1,6 @@
 import { readPiMemoryEnv, resolveEmbedDim } from "../config/env.js";
+import { DEFAULT_HASH_EMBED_DIM } from "../constants/env.js";
+import { createEmbedder } from "../adapters/embed/factory.js";
 import { fetchIndexStats, ping } from "../sidecar/client.js";
 import type { IndexStats } from "../sidecar/protocol.js";
 import { resolveSidecarPaths } from "../sidecar/paths.js";
@@ -107,18 +109,31 @@ function embedderMatchesIndex(report: MemoryStatusReport): boolean {
   );
 }
 
+function resolveConfiguredEmbedder(env: ReturnType<typeof readPiMemoryEnv>): MemoryStatusReport["embedder"] {
+  try {
+    const embedder = createEmbedder(env);
+    return { provider: embedder.provider, model: embedder.model, dim: embedder.dim };
+  } catch {
+    const embedModel =
+      env.embedder === "openai"
+        ? env.openaiEmbedModel
+        : env.embedder === "ollama"
+          ? env.ollamaEmbedModel
+          : "hash/dev";
+    const dim =
+      env.embedder === "hash"
+        ? (env.embedDimOverride ?? DEFAULT_HASH_EMBED_DIM)
+        : resolveEmbedDim(embedModel, env.embedDimOverride);
+    return { provider: env.embedder, model: embedModel, dim };
+  }
+}
+
 export async function gatherMemoryStatus(agentDir: string): Promise<MemoryStatusReport> {
   const store = createMemoryStore({ agentDir });
   await store.ensureInitialized();
 
   const sidecar = resolveSidecarPaths(agentDir);
   const env = readPiMemoryEnv();
-  const embedModel =
-    env.embedder === "openai"
-      ? env.openaiEmbedModel
-      : env.embedder === "ollama"
-        ? env.ollamaEmbedModel
-        : "hash";
 
   const sidecarRunning = await ping(sidecar.socketPath);
 
@@ -133,11 +148,7 @@ export async function gatherMemoryStatus(agentDir: string): Promise<MemoryStatus
       dbPath: sidecar.dbPath,
       exists: pathExists(sidecar.dbPath),
     },
-    embedder: {
-      provider: env.embedder,
-      model: embedModel,
-      dim: resolveEmbedDim(embedModel, env.embedDimOverride),
-    },
+    embedder: resolveConfiguredEmbedder(env),
   };
 
   if (!report.vectorIndex.exists) return report;

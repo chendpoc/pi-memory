@@ -1,4 +1,5 @@
 import type { LlmClient } from "../adapters/llm/types.js";
+import { sidecarQueryCache } from "../preflight/queryCache.js";
 import { ensureSidecarRunning } from "../sidecar/sidecarManager.js";
 import { reindex } from "../sidecar/client.js";
 import { resolveSidecarPaths } from "../sidecar/paths.js";
@@ -52,5 +53,6 @@ export async function runConsolidateJob(
 async function syncSidecarIndex(agentDir: string, store: MemoryStore): Promise<void> {
   const sidecar = resolveSidecarPaths(agentDir);
   await ensureSidecarRunning(sidecar);
-  await reindex(sidecar.socketPath, await store.exportForIndex());
+  const result = await reindex(sidecar.socketPath, await store.exportForIndex());
+  sidecarQueryCache.onReindexComplete(agentDir, result.index_generation);
 }

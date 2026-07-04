@@ -15,7 +15,7 @@ export function cosineSimilarity(a: Float32Array, b: Float32Array): number {
   return dot;
 }
 
-/** MMR re-ranking: λ=0.7 balances relevance vs diversity (design doc §附录 C). */
+/** MMR re-ranking: λ defaults from retrieval config (see constants/retrieval.ts). */
 export function mmrSelect(
   queryEmbedding: Float32Array,
   candidates: ScoredCandidate[],

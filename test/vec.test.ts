@@ -79,7 +79,26 @@ describe("VecStore", () => {
     const results = await store.query("User prefers TypeScript strict mode");
     expect(results.length).toBeGreaterThan(0);
     expect(results[0]?.content).toContain("TypeScript strict mode");
-    expect(results[0]?.relevance).toBeGreaterThan(0);
+    expect(results[0]?.relevance).toBeGreaterThan(0.4);
+    expect(results.length).toBeLessThanOrEqual(3);
+  });
+
+  it("returns no results when nothing passes the relevance threshold", async () => {
+    tmpDir = mkdtempSync(join(tmpdir(), "pi-memory-vec-threshold-"));
+    dbPath = join(tmpDir, "memory.db");
+    const store = getVecStore(dbPath);
+
+    await store.reindex([
+      {
+        id: "pref-1",
+        content: "User prefers TypeScript strict mode",
+        source: "MEMORY.md",
+        timestamp: "2026-07-04T00:00:00.000Z",
+      },
+    ]);
+
+    const results = await store.query("quantum entanglement lunar eclipse");
+    expect(results).toEqual([]);
   });
 
   it("clears chunks when stored embedding meta mismatches", async () => {

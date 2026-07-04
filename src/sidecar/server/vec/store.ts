@@ -3,7 +3,7 @@ import { createRequire } from "node:module";
 import type { Embedder } from "../../../adapters/embed/types.js";
 import type { IndexDocument, MemoryEntry } from "../../protocol.js";
 import { ensureDirSync, pathDirname } from "../../../utils/fs.js";
-import { CANDIDATE_POOL_MULTIPLIER, DEFAULT_TOP_K } from "../../../constants/retrieval.js";
+import { readRetrievalConfig } from "../../../config/retrieval.js";
 import { getEmbedder } from "./embedder.js";
 import { cosineSimilarity, distanceToRelevance, mmrSelect, type ScoredCandidate } from "./mmr.js";
 
@@ -164,12 +164,13 @@ export class VecStore {
     return sync(documents, embeddings);
   }
 
-  async query(queryText: string, topK = DEFAULT_TOP_K): Promise<MemoryEntry[]> {
+  async query(queryText: string, topK?: number): Promise<MemoryEntry[]> {
+    const retrieval = readRetrievalConfig();
+    const limit = topK ?? retrieval.topK;
     const embedder = getEmbedder();
     this.clearChunksIfEmbeddingMismatch(embedder);
 
     const queryEmbedding = await embedder.embed(queryText);
-    const poolSize = topK * CANDIDATE_POOL_MULTIPLIER;
 
     const rows = this.db
       .prepare("SELECT chunk_id, content, source, timestamp, embedding FROM memory_chunks")
@@ -182,6 +183,7 @@ export class VecStore {
       const embedding = blobToEmbedding(row.embedding);
       if (embedding.length !== queryEmbedding.length) continue;
       const similarity = cosineSimilarity(queryEmbedding, embedding);
+      if (similarity < retrieval.minRelevance) continue;
       candidates.push({
         chunkId: row.chunk_id,
         content: row.content,
@@ -192,9 +194,12 @@ export class VecStore {
       });
     }
 
+    if (candidates.length === 0) return [];
+
     candidates.sort((a, b) => a.distance - b.distance);
+    const poolSize = Math.min(limit * retrieval.candidatePoolMultiplier, candidates.length);
     const pool = candidates.slice(0, poolSize);
-    const selected = mmrSelect(queryEmbedding, pool, topK);
+    const selected = mmrSelect(queryEmbedding, pool, limit, retrieval.mmrLambda);
 
     return selected.map((item) => ({
       content: item.content,

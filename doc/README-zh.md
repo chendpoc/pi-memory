@@ -61,13 +61,25 @@ pnpm test
 }
 ```
 
-需要时可显式初始化记忆：
+### 记忆工作区（自动初始化）
+
+**大多数用户不需要手动运行 `pi-memory init`。** 同一套 bootstrap（`initializeMemoryWorkspace`）会自动执行，且**不会覆盖非空的 `MEMORY.md`**：
+
+| 时机 | 行为 |
+| --- | --- |
+| **`pnpm install`** | `postinstall` 执行 `pi-memory init`（或 pre-build 回退脚本） |
+| **首次 Pi session** | `session_start` → `MemoryStore.ensureInitialized()` |
+| **手动（可选）** | `pi-memory init` |
+
+仅在以下情况需要显式运行 `pi-memory init`：
+
+- 安装**之后**才设置 **`PI_MEMORY_AGENT_DIR`**（postinstall 可能已按默认路径初始化）。
+- 安装脚本被跳过（`--ignore-scripts` 或企业策略）。
+- 想在打开 Pi 之前先 bootstrap，或配合 `pi-memory status` 做排查。
 
 ```bash
-pi-memory init
+pi-memory init   # 可选；见上文
 ```
-
-初始化不会覆盖非空 `MEMORY.md`。
 
 ## 为什么选择 `pi-memory`
 
@@ -284,11 +296,11 @@ Pi 内部：
 CLI：
 
 ```bash
-pi-memory init
 pi-memory status
 pi-memory maintenance --cron --verbose
 pi-memory consolidate --force --verbose
 pi-memory drain-shutdown-queue --verbose
+pi-memory init   # 可选 — 安装后 + 首次 session 通常已自动完成
 ```
 
 `maintenance` 是推荐的调度入口：

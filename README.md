@@ -61,13 +61,25 @@ Enable the extension through Pi's extension loading mechanism. This package decl
 }
 ```
 
-Initialize memory explicitly when needed:
+### Memory workspace (automatic)
+
+You usually **do not need to run `pi-memory init` manually**. The same bootstrap (`initializeMemoryWorkspace`) runs automatically and **never overwrites a non-empty `MEMORY.md`**:
+
+| When | What happens |
+| --- | --- |
+| **`pnpm install`** | `postinstall` runs `pi-memory init` (or a pre-build fallback) |
+| **First Pi session** | `session_start` → `MemoryStore.ensureInitialized()` |
+| **Manual (optional)** | `pi-memory init` |
+
+Run `pi-memory init` explicitly only when:
+
+- You set **`PI_MEMORY_AGENT_DIR`** after install (postinstall may have seeded the default path).
+- Install scripts were skipped (`--ignore-scripts` or corporate policy).
+- You want to bootstrap before opening Pi, or verify setup with `pi-memory status`.
 
 ```bash
-pi-memory init
+pi-memory init   # optional; see above
 ```
-
-Initialization never overwrites a non-empty `MEMORY.md`.
 
 ## Why Choose `pi-memory`
 
@@ -284,11 +296,11 @@ Inside Pi:
 CLI:
 
 ```bash
-pi-memory init
 pi-memory status
 pi-memory maintenance --cron --verbose
 pi-memory consolidate --force --verbose
 pi-memory drain-shutdown-queue --verbose
+pi-memory init   # optional — usually automatic after install + first session
 ```
 
 `maintenance` is the recommended scheduler entrypoint:

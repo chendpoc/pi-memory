@@ -1,6 +1,7 @@
 export const DEFAULT_MEMORY_FILE = "MEMORY.md";
 export const MEMORY_GC_FILE = ".memory_gc";
 export const COMPACTION_STATE_FILE = ".memory_compactions.json";
+export const SHUTDOWN_QUEUE_FILE = ".memory_shutdown_queue.jsonl";
 export const AUTO_FILE_PREFIX = "auto-";
 
 export const OVERFLOW_POINTER_RE =

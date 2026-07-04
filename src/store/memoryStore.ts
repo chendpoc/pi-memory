@@ -265,7 +265,7 @@ export class MemoryStore {
     const stats = await this.getStats();
     if (stats.overflowFileCount >= CONSOLIDATE_OVERFLOW_FILE_THRESHOLD) return true;
     if (cronFired) return true;
-    if (!stats.lastConsolidatedAt) return stats.entryCount > 0;
+    if (!stats.lastConsolidatedAt) return false;
     const days = (now.getTime() - Date.parse(stats.lastConsolidatedAt)) / MS_PER_DAY;
     return days >= CONSOLIDATE_GC_INTERVAL_DAYS;
   }

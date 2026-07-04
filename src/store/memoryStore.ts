@@ -21,6 +21,7 @@ import {
 import { countLines, formatEntryLine, formatSectionHeader } from "./markdown/format.js";
 import { listOverflowPointers, parseMemoryMarkdown } from "./markdown/parse.js";
 import { initializeMemoryWorkspace } from "../init/workspace.js";
+import { readChunkingConfig } from "../config/chunking.js";
 import {
   joinPath,
   pathBasename,
@@ -28,6 +29,7 @@ import {
   readTextRequired,
   writeText,
 } from "../utils/fs.js";
+import { buildIndexDocuments } from "./indexChunks.js";
 import { daysSince, formatLocalDate, formatTimestamp, type TimeInput } from "../utils/time.js";
 import { getAgentPaths, resolveAgentDir } from "./paths.js";
 import type {
@@ -136,12 +138,7 @@ export class MemoryStore {
 
   async exportForIndex(): Promise<IndexDocument[]> {
     const resolved = await this.readResolved();
-    return resolved.entries.map((entry) => ({
-      id: entry.id,
-      content: entry.content,
-      source: pathBasename(entry.sourceFile),
-      timestamp: entry.timestamp,
-    }));
+    return buildIndexDocuments(resolved.entries, readChunkingConfig());
   }
 
   async append(entry: StoreMemoryEntry): Promise<void> {

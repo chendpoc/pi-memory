@@ -53,6 +53,7 @@ describe("MemoryStore", () => {
     const docs = await store.exportForIndex();
     expect(docs).toHaveLength(1);
     expect(docs[0]?.id).toBe("finding-1");
+    expect(docs[0]?.content).toBe("[Findings] Sidecar uses better-sqlite3 only");
 
     const fallback = await store.readForFallback();
     expect(fallback).toContain("better-sqlite3");

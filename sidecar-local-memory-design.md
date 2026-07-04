@@ -11,13 +11,13 @@
 |------|------|
 | **结构化校验** | Zod + sanitize；Preflight QueryIntent **最多 1 次 retry** |
 | **进程** | `spawn` / `execa` 管理 Sidecar；**不用 PM2** |
-| **IPC** | `node:net` UDS + **NDJSON 行帧**（`ndjson` 拆帧） |
+| **IPC** | `node:net` UDS + **JSONL 行帧**（共享 `JsonlFramer` 拆帧） |
 | **向量库** | **`memory.vec.sqlite`**（better-sqlite3 + JS cosine；MVP 全表扫描，非 sqlite-vec ANN） |
 | **Session 搜索** | **pi-session-search**（独立 FTS5 索引；**不在 sidecar DB 重复建**） |
 | **文件锁** | **proper-lockfile**（macOS + Windows） |
 | **存储抽象** | **MemoryStore** — 外界不直接操作 agent 目录文件 |
 | **调度** | Extension 内 **24h interval + debounce**；**03:00** 用 **launchd / cron / schtasks** → `pi-memory consolidate --cron` |
-| **跨平台** | `platform-paths` 抽象（socket、agentDir、db、chmod） |
+| **跨平台** | `store/paths` + `sidecar/paths` + `utils/paths` + `utils/socket` |
 
 | 方向 | 链路 |
 |------|------|
@@ -34,7 +34,7 @@
 
 - **跨 session 记忆**：偏好、项目约定、关键决策、待办在新 session 仍可用（Preflight 检索注入）。
 - **长 session 内续聊**：交给 **Pi compaction**（`CompactionEntry` + `Session Context`），不重复造轮子。
-- **足够轻**：本地 **sqlite-vec**（`memory.db`），Sidecar 独立进程；无 Qdrant / PM2 / 自建 session FTS5。
+- **足够轻**：本地 **Vector Index**（`memory.vec.sqlite`，better-sqlite3 + 全表 cosine 扫描），Sidecar 独立进程；无 Qdrant / PM2 / 自建 session FTS5。
 - **Session 历史搜索**：交给 **pi-session-search**（Agent 工具层）；与 Preflight / Sidecar **解耦**。
 - **用户可控**：显式 **`/remember`** 写入，不做自然语言「记住」关键字检测。
 - **不阻塞热路径**：MEMORY 入库与整理 **异步**（`appendFromCompaction` fire-and-forget、consolidate debounce/interval）；compact 时用户只等 **一次** custom summary LLM。
@@ -46,8 +46,8 @@
 - 不把 `<private_memory>` 写回 session 或 MEMORY。
 - 不用 Reflect / ToT 增强 QueryIntent；不用 PM2 管 Sidecar 或 consolidate。
 - 审计、Shannon Cloud 跨 session（Kocoro 文档称 NOT IMPLEMENTED）本文不展开。
-- 不在 `memory.db` 内维护 Kocoro 式 **`sessions_fts`**；Preflight Fallback **不接** pi-session-search。
-- **§11 Backlog** 中的 Preflight 预算压缩、Sidecar query 缓存、本地 embed 等**性能优化不属于 MVP 设计目标**；MVP 验收不依赖 Backlog。
+- 不在 `memory.vec.sqlite` 内维护 Kocoro 式 **`sessions_fts`**；Preflight Fallback **不接** pi-session-search。
+- **§11 Backlog** 中的本地 embed、长文 chunking 等**性能优化不属于 MVP 设计目标**；MVP 验收不依赖 Backlog。
 
 ---
 
@@ -62,7 +62,7 @@
 │  consolidate            → MemoryStore.consolidate (async)       │
 │  onSyncToSidecar        → debounced sidecar.reindex             │
 └───────────────────────────────┬─────────────────────────────────┘
-                                │ UDS (NDJSON)
+                                │ UDS (JSONL)
                                 ▼
 ┌─ Sidecar 进程 (spawn/execa) ────────────────────────────────────┐
 │  ping/pong 就绪 │ query: embed → cosine scan → MMR → results      │
@@ -87,7 +87,7 @@
 | **Daemon / Agent** | QueryIntent、`buildRetrievalQuery`、Preflight、MEMORY 写入、Consolidate、spawn Sidecar |
 | **Sidecar** | 向量检索 + reindex；**不**写 MEMORY.md；**不**解析 QueryIntent |
 | **MEMORY.md** | 持久事实源；Sidecar 索引为 **派生数据**；Sidecar 失败/空时 Fallback 直读 md |
-| **pi-session-search** | 搜 **历史 session**（独立 FTS5 索引）；**不**写入 `memory.db`；**不**参与 Preflight Fallback |
+| **pi-session-search** | 搜 **历史 session**（独立 FTS5 索引）；**不**写入 `memory.vec.sqlite`；**不**参与 Preflight Fallback |
 
 ---
 
@@ -164,7 +164,7 @@
    what + who + where | raw_query
 
 3. sidecar.query(queryString)      ← UDS
-   embed(1536d) → sqlite-vec TOP(K×3) → MMR(λ=0.7) → MemoryEntry[]
+   embed → memory.vec.sqlite 全表 cosine TOP(K×3) → MMR(λ=0.7) → MemoryEntry[]
 
 4. 非空 → user message 前缀：
    <private_memory>...</private_memory>\n\n{原始 userInput}
@@ -178,7 +178,7 @@
 相对 Kocoro 四层链（Sidecar → session FTS5 → MEMORY.md → stateless），本方案 **去掉 session FTS5 层**；Preflight 终点只有两种：**注入 MEMORY 内容** 或 **空注入**。
 
 ```
-Sidecar query（主路径：sqlite-vec + MMR）
+Sidecar query（主路径：memory.vec.sqlite 全表 cosine + MMR）
   ↓ err / 超时 / 无结果
 MemoryStore.readForFallback(maxChars)   ← 读 MEMORY.md（Ground truth；有 char 上限）
   ↓ 非空 → 格式化为 <private_memory> 注入
@@ -229,7 +229,7 @@ function isSubagentSession(ctx: ExtensionContext): boolean {
 ```
 session_start
   → MemoryStore.readForFallback(maxChars) 或 exportForIndex 摘要 cap
-  → 缓存为 session 级 turnMemoryIndex（本 session 内复用）
+  → 缓存为 session 级 **Memory Cap**（本 session 内复用）
   → ❌ 不跑 QueryIntent / helper LLM / sidecar episodic query
 
 before_agent_start（子 session 每一轮）
@@ -256,24 +256,34 @@ before_agent_start（子 session 每一轮）
 
 注入语义不变：`<private_memory>` 仍只存在于 in-flight user message；**不**写入 session JSONL；compaction 输入仍剥离。
 
-#### 写路径：已有 subagent 策略（保持不变）
+#### 写路径：Compact Delta + Shutdown Queue
 
-写路径**已**区分 parent/child，实现时与读路径判断共用同一 `isSubagentSession`：
+Pi 主写路径是 **compact → Memory Export → appendFromCompaction**；subagent 走 **Compact Delta** 去重。`session_shutdown` **仅**追加元数据到 **Shutdown Queue**（offline worker 预留），不做 LLM 提取。
 
-| 项 | Subagent 行为 |
-|----|---------------|
-| `session_shutdown` enqueue | 记录 `parent_session_id` / `parent_session_file` |
-| Stage1 提取 | **delta only**（相对 parent 的新增 turns） |
-| Clone session（与 parent 无 delta） | **skip**，不入库 |
+```
+session_before_compact → dual-purpose summary (LLM ×1)
+session_compact        → appendFromCompaction (fire-and-forget)
+  → parseMemoryExport
+  → subagent: filterCompactionDelta → appendIfAbsent (skip clone if no delta)
+  → root: appendIfAbsent
+
+session_shutdown       → append .memory_shutdown_queue.jsonl (metadata only)
+```
+
+| 项 | Subagent / Root 行为 |
+|----|----------------------|
+| `session_compact` | **主路径**：Memory Export → **Compact Delta**（subagent）→ `appendIfAbsent` |
+| Clone session（Export 有内容但无 delta） | subagent **skip**，仍 mark compaction processed |
+| `session_shutdown` | 追加 JSONL：`sessionFile`、`parentSession`、`reason`、`isSubagent`、`enqueuedAt` |
 | Consolidate 触发 | 与 root 相同（OR 条件）；不因 subagent 单独放宽 |
 
-子 session **不**因「跳过 Preflight」而跳过 compact → Memory Export 异步入库；若子 session 产生新的 durable 事实，仍走 `session_compact` queue（delta 提取避免重复写 parent 已提炼内容）。
+子 session **不**因「跳过 Episodic Preflight」而跳过 compact → Memory Export 异步入库。
 
 #### 与 Codex / Kocoro 对照
 
 | | Codex | Kocoro | 本方案（Pi） |
 |--|-------|--------|--------------|
-| Sub-agent 记忆写入 | ❌ 不触发 Phase 1/2 | 未明确文档化 | ✅ delta 提取 + skip clone |
+| Sub-agent 记忆写入 | ❌ 不触发 Phase 1/2 | 未明确文档化 | ✅ **Compact Delta** + shutdown metadata queue |
 | Sub-agent 记忆读取 | 未单独文档化 | 未单独文档化 | ✅ cap only；跳过 episodic Preflight |
 
 ---
@@ -284,13 +294,14 @@ before_agent_start（子 session 每一轮）
 
 Sidecar = **检索服务进程**（RAG 的 R）；Augment = Preflight 注入；Generate = 主模型。
 
-### 5.2 sqlite-vec 与 pi-session-search
+### 5.2 Vector Index 与 pi-session-search
 
-**`memory.db`（Sidecar 专用）**
+**`memory.vec.sqlite`（Sidecar 专用）**
 
-- 仅 **sqlite-vec** 向量表 + 可选 **`memory_jobs`** 队列表（与 vec 同库或分文件均可）。
-- Sidecar **write** = reindex upsert；**query** = embed + ANN + MMR。
-- embedding 模型变更 → **全量 reindex**。
+- **memory_chunks** 表 + **meta** 表（embedding 模型、**index_generation**）。
+- Sidecar **write** = reindex upsert；**query** = embed + 全表 cosine + MMR。
+- embedding 模型变更 → 检测 meta 不一致 → **DELETE chunks + 全量 reindex**。
+- **MVP chunking**：**1 Memory Entry = 1 vector chunk**（`chunk_id = entry.id`）；Kocoro ~2000 token 分块见 §11 Backlog。
 - **不含** Kocoro 式 `sessions_fts`；session 全文搜索 **不**在此库维护。
 
 **pi-session-search（Pi 扩展，独立索引）**
@@ -305,25 +316,32 @@ Sidecar = **检索服务进程**（RAG 的 R）；Augment = Preflight 注入；G
 |----|------|
 | 启动 | `spawn(process.execPath, [sidecarEntry, --socket, --db])` |
 | 生命周期 | `execa`：`cleanup`、`forceKillAfterDelay: 5s` |
-| 协议 | 一行一 JSON + `\n`；`request_id` 关联 |
+| 协议 | 一行一 JSON + `\n`（**JSONL framing**）；`request_id` 关联 |
 | 就绪 | poll `ping`/`pong`，超时 fail → Fallback |
-| npm | `execa`、`ndjson`；不必 `node-ipc` / zeromq |
+| 拆帧 | 共享 `src/ipc/jsonlFramer.ts`；`execa` 管理进程 |
 
-### 5.4 跨平台抽象
+### 5.4 跨平台路径模块
 
-```typescript
-// platform-paths.ts（示意）
-paths.socket(app)      // ~/.{app}/memory.sock
-paths.agentDir(app, agent)
-paths.memoryDb(app, agent)
-secureSocketPath(sock) // chmod 600 @ unix only
-```
+| 职责 | 模块 |
+|------|------|
+| Agent 目录 / MEMORY 路径 | `src/store/paths.ts` |
+| Sidecar socket / db | `src/sidecar/paths.ts` |
+| `~/.pi` 默认路径 | `src/utils/paths.ts` |
+| CLI agentDir 解析 | `src/config/agentDir.ts` |
+| UDS chmod / 清理 | `src/utils/socket.ts` |
+| OS cron 模板 | `src/utils/scheduler.ts` + `templates/` |
 
 | | macOS | Windows 11 |
 |--|-------|------------|
 | UDS | ✅ | ✅ AF_UNIX |
 | proper-lockfile | ✅ | ✅ |
-| sqlite-vec native | 分平台 prebuild | 分平台 prebuild |
+| better-sqlite3 | 分平台 prebuild | 分平台 prebuild |
+
+### 5.5 Sidecar Query Cache（已实现）
+
+- Extension 内 **LRU**（`lru-cache`，上限 500）；key = `normalize(query) + agentDir`。
+- 值绑定 **index_generation**；`reindex_ok` 返回新 generation → cache clear。
+- 命中跳过 embed + cosine + MMR；重复 query 可 \<5ms。
 
 ---
 
@@ -397,10 +415,11 @@ interface MemoryStore {
 ├── MEMORY.md
 ├── auto-YYYY-MM-DD-<hex>.md
 ├── .memory_gc
-└── memory.vec.sqlite      # Sidecar 向量索引（派生）
+├── .memory_shutdown_queue.jsonl   # Shutdown Queue（元数据，offline worker 预留）
+└── memory.vec.sqlite      # Vector Index（派生）
 ```
 
-**pi-session-search** 索引路径由扩展自管（通常 `~/.pi/session-search/`），**不在** agent 目录下与 `memory.db` 合并。
+**pi-session-search** 索引路径由扩展自管（通常 `~/.pi/session-search/`），**不在** agent 目录下与 `memory.vec.sqlite` 合并。
 
 ---
 
@@ -427,8 +446,8 @@ store.appendFromCompaction({
 |-------------|--------|
 | PersistLearnings compact **前**同步 | custom summary + **`session_compact` 异步入库** |
 | tool / 自然语言 memory_append | **`/remember`** |
-| Sidecar `tlm` + bundle pull | **sqlite-vec** + 本地 reindex |
-| Session Search FTS5（daemon 内置） | **pi-session-search** 扩展；**不在 memory.db 重复建** |
+| Sidecar `tlm` + bundle pull | **memory.vec.sqlite** + 本地 reindex |
+| Session Search FTS5（daemon 内置） | **pi-session-search** 扩展；**不在 memory.vec.sqlite 重复建** |
 | Preflight Fallback 四层 | **Sidecar → MEMORY.md → 空注入**（无 session FTS 层） |
 | Consolidate ≥12 **且** ≥7 天 | **OR** + daily 03:00 |
 | QueryIntent prompt + json.Unmarshal | **Zod + 1 retry**（可选 generateObject） |
@@ -439,8 +458,8 @@ store.appendFromCompaction({
 
 ## 9. 实现顺序
 
-1. `platform-paths` + `MemoryStore` / `MarkdownMemoryBackend`
-2. Sidecar：`uds-server` + sqlite-vec + `query` / `reindex`
+1. `store/paths` + `MemoryStore` / `MarkdownMemoryBackend`
+2. Sidecar：UDS server + `memory.vec.sqlite` + `query` / `reindex`
 3. `SidecarManager`（spawn、ping、shutdown）
 4. Preflight + Fallback
 5. Pi extension：`session_before_compact` + `session_compact` + `appendFromCompaction`
@@ -451,7 +470,7 @@ store.appendFromCompaction({
 
 ## 10. 一句话
 
-> **MEMORY.md 是源；Sidecar 是 sqlite-vec 检索进程；Preflight 读；写走 /remember、compact Memory Export（异步）、consolidate；compact 一次 LLM 兼顾续聊与 Export；MemoryStore 统一抽象；重活后台、失败静默降级。**
+> **MEMORY.md 是 Ground Truth；Sidecar 是 memory.vec.sqlite 检索进程；Preflight 读；写走 /remember、compact Memory Export（Compact Delta）、consolidate；失败静默降级。**
 
 ---
 
@@ -465,40 +484,22 @@ store.appendFromCompaction({
 | 项 | 说明 |
 |----|------|
 | **压缩总预算** | `PREFLIGHT_BUDGET_MS=500～800`（MVP 基线）；超时 → 空注入，不阻断主模型 |
-| **分段 deadline** | intent cap ~200ms；sidecar 拿剩余时间（~300~600ms）；共享 `deadline` 避免串行拖满 |
+| **分段 deadline** | intent cap ~200ms；sidecar 拿剩余时间；共享 `deadline`（**已实现**） |
 | **QueryIntent 按需** | 短句、slash、无「之前/上次/记得」等 → **跳过 intent**，直接 `raw_query` 检索 |
 | **retry 改为 0** | MVP 为最多 1 次 retry（§4）；优化项可改为 **0 retry**，失败即 `raw_query` |
 | **条件跳过 Preflight** | `MemoryStore.isEmpty()`、首条且无 session 索引、纯 `/command` → 跳过整段 Preflight |
 
-### P0 — Sidecar query 缓存
+### P0 — Sidecar query 缓存（已实现，见 §5.5）
 
-| 项 | 说明 |
-|----|------|
-| **缓存内容** | `normalize(query) + agentId` → `MemoryEntry[]`（或已格式化的 private_memory 块） |
-| **命中收益** | 跳过 embed + sqlite-vec + MMR；重复 query 可 \<5ms |
-| **主失效** | `indexGeneration`：`reindex` 完成 / `rewrite` 后 `bumpGeneration()` → 清空该 agent 缓存 |
-| **辅失效** | Consolidate 完成后 clear（兜底）；可选当日 TTL（23:59 或 24h rolling） |
-| **注意** | append / compact 入库后 **不必等 consolidate** 即应失效；**不能只绑 daily consolidate** |
-| **空结果** | 可缓存但 **短 TTL**（如 60s），避免反复 embed 仍空 |
-| **上限** | 进程内 LRU（如 500～1000 条）；按 agent 隔离；**不持久化**、不写 session |
-
-```typescript
-// 示意：缓存与索引代数绑定
-type QueryCacheEntry = {
-  results: MemoryEntry[];
-  cachedAt: number;
-  indexGeneration: number;
-};
-// reindex 完成 → gen++ → map.clear() 或删 agent 前缀
-```
+已从 Backlog 移至 §5.5。剩余优化：空结果短 TTL（60s）、语义相似 cache key（明确不做）。
 
 ### P1 — 检索与索引效率
 
 | 项 | 说明 |
 |----|------|
 | **增量 reindex** | 按 `exportForIndex` 条目/chunk **upsert**，避免每次全量 rebuild |
-| **debounce 调参** | `onDirty` 合并 burst append（如 2～5s）；compact worker 批量入库后再触发一次 reindex |
-| **按长度 chunk** | MEMORY 短条目（如 \<8000 chars）**不 chunk**；长 overflow / session 再 `ChunkText` |
+| **debounce 调参** | `onSyncToSidecar` 合并 burst append（如 2～5s）；compact 入库后再触发 reindex |
+| **按长度 chunk** | MVP 不 chunk；Kocoro ~2000 token 分块为 Backlog |
 | **reindex 与 query 分离** | Sidecar 内 reindex 队列低优先级；query 不被 embed batch 阻塞 |
 | **Warm start** | daemon 启动 spawn Sidecar 后 **预 ping + 可选预热** vec 连接，避免首条消息冷启动 |
 
@@ -508,7 +509,7 @@ type QueryCacheEntry = {
 |----|------|
 | **本地 embed（可选）** | Sidecar 内嵌本地小模型（transformers.js / ollama 等）→ 降 Preflight 中 embed API 延迟 |
 | **batch embed** | reindex 时 N chunk **一次** API（对齐 Kocoro `BatchEmbed`） |
-| **模型版本字段** | `memory.db` 存 embedding 模型 id；变更 → 标记全量 reindex |
+| **模型版本字段** | `memory.vec.sqlite` meta 存 embedding 模型 id；变更 → 全量 reindex（**已实现**） |
 
 ### P1 — Preflight 策略进阶
 
@@ -532,14 +533,14 @@ type QueryCacheEntry = {
 |----|------|
 | **语义相似 query 缓存** | embedding 近邻作 cache key 易误命中；v1 仅 normalized exact match |
 | **Reflect / ToT QueryIntent** | 与低延迟 Preflight 目标冲突 |
-| **tlm / bundle** | 本地 sqlite-vec + reindex 已覆盖；不引入 Cloud bundle |
+| **tlm / bundle** | 本地 memory.vec.sqlite + reindex 已覆盖；不引入 Cloud bundle |
 | **PM2** | Sidecar / cron 用 spawn + node-cron / launchd 即可 |
 
 ### Backlog 内建议优先级（不影响 §9）
 
-1. Sidecar query cache + `indexGeneration` 失效  
-2. Preflight 预算压缩 + skip intent + retry 0  
-3. 增量 reindex + debounce 调参  
+1. Preflight 预算压缩 + skip intent + retry 0  
+2. 增量 reindex + debounce 调参  
+3. 长文 chunking（~2000 token）  
 4. 本地 embed（若 embed API 仍是 p99 瓶颈）  
 5. metrics + λ 调参  
 
@@ -552,7 +553,9 @@ type MemoryFrame =
   | { type: "ping" }
   | { type: "pong" }
   | { type: "query"; request_id: string; query: string }
+  | { type: "reindex"; request_id: string; documents?: IndexDocument[] }
   | { type: "result"; request_id: string; results: MemoryEntry[] }
+  | { type: "reindex_ok"; request_id: string; indexed: number; index_generation: number }
   | { type: "error"; request_id?: string; error: string };
 
 type MemoryEntry = {
@@ -585,4 +588,4 @@ function shouldConsolidate(stats: MemoryStats, cronFired: boolean): boolean {
 ## 附录 C：embedding 与 MMR
 
 - Embedding：与选型一致（如 1536 维）；Sidecar 与 reindex 共用。
-- MMR：候选 `K×3`，λ = 0.7，应用层实现（sqlite-vec 不内置 MMR）。
+- MMR：候选 `K×3`，λ = 0.7，应用层实现（memory.vec.sqlite 不内置 MMR）。

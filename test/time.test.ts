@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import dayjs from "dayjs";
 
 import {
   daysSince,
@@ -11,9 +12,11 @@ import {
 } from "../src/utils/time.js";
 
 describe("time utils", () => {
+  const fixedInstant = new Date("2026-07-04T16:30:00+08:00");
+
   beforeEach(() => {
     vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-07-04T16:30:00+08:00"));
+    vi.setSystemTime(fixedInstant);
   });
 
   afterEach(() => {
@@ -21,16 +24,17 @@ describe("time utils", () => {
   });
 
   it("formats local timestamps without Z suffix", () => {
-    expect(formatTimestamp()).toBe("2026-07-04T16:30:00.000");
+    const expected = dayjs(fixedInstant).format("YYYY-MM-DDTHH:mm:ss.SSS");
+    expect(formatTimestamp()).toBe(expected);
     expect(formatTimestamp()).not.toContain("Z");
   });
 
   it("formats local calendar dates", () => {
-    expect(formatLocalDate()).toBe("2026-07-04");
+    expect(formatLocalDate()).toBe(dayjs(fixedInstant).format("YYYY-MM-DD"));
   });
 
   it("uses epoch for missing entry metadata", () => {
-    expect(epochTimestamp()).toBe("1970-01-01T08:00:00.000");
+    expect(epochTimestamp()).toBe(dayjs(0).format("YYYY-MM-DDTHH:mm:ss.SSS"));
   });
 
   it("counts whole local calendar days", () => {

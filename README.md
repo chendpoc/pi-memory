@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="./assets/pi-memory-logo.png" alt="pi-memory logo" width="720" />
+</p>
+
 # @chendpoc/pi-memory
 
 <p align="center">
@@ -9,7 +13,7 @@ Cross-session episodic memory for the [Pi coding agent](https://pi.dev).
 
 `pi-memory` gives Pi a local, auditable memory layer across sessions. It keeps durable facts in **`MEMORY.md` as the source of truth**, derives a vector index in `memory.vec.sqlite`, and injects relevant private context through Preflight before the main model answers.
 
-## What It Does
+## 🧠 What It Does
 
 Pi already has compaction for long sessions. That solves "this conversation is too long"; it does not solve "a new session forgot my preferences, project conventions, prior decisions, and unresolved todos."
 
@@ -21,14 +25,15 @@ durable facts -> MEMORY.md -> derived vector index -> per-turn Preflight recall
 
 It provides:
 
-- **Explicit memory** through `/remember`.
-- **Automatic durable fact export** from Pi compaction.
-- **Shutdown queue recovery** for short or missed sessions.
-- **Per-turn private recall** before the main model runs.
-- **Human-editable storage** in Markdown, with vector search as a rebuildable index.
-- **Offline maintenance** for consolidation, dedupe, overflow handling, and queue draining.
+- ✍️ **Explicit memory** through `/remember`.
+- 🔁 **Automatic durable fact export** from Pi compaction.
+- 📥 **Shutdown queue recovery** for short or missed sessions.
+- 🔦 **Per-turn private recall** before the main model runs.
+- 📄 **Human-editable storage** in Markdown, with vector search as a rebuildable index.
+- 🔌 **Local UDS sidecar** for vector retrieval and reindexing, without opening an HTTP port.
+- ⏳ **Daemon-friendly maintenance**: shutdown enqueues metadata, while consolidation and queue draining can run offline.
 
-## Installation
+## 📦 Installation
 
 Requirements:
 
@@ -36,10 +41,10 @@ Requirements:
 - pnpm
 - Pi extension runtime packages supplied by Pi
 
-Install as a package in the Pi extension environment:
+Install from Pi:
 
 ```bash
-pnpm add @chendpoc/pi-memory
+pi install npm:@chendpoc/pi-memory
 ```
 
 For local development from this repository:
@@ -61,7 +66,7 @@ Enable the extension through Pi's extension loading mechanism. This package decl
 }
 ```
 
-### Memory workspace (automatic)
+### 🌱 Memory workspace (automatic)
 
 You usually **do not need to run `pi-memory init` manually**. The same bootstrap (`initializeMemoryWorkspace`) runs automatically and **never overwrites a non-empty `MEMORY.md`**:
 
@@ -81,9 +86,9 @@ Run `pi-memory init` explicitly only when:
 pi-memory init   # optional; see above
 ```
 
-## Why Choose `pi-memory`
+## ✨ Why Choose `pi-memory`
 
-### Agent Before / After
+### 🔄 Agent Before / After
 
 | Situation | Without `pi-memory` | With `pi-memory` |
 | --- | --- | --- |
@@ -94,18 +99,30 @@ pi-memory init   # optional; see above
 | Vector sidecar is down | A hard dependency would break the turn. | Preflight silently falls back to Markdown or injects nothing; the model still runs. |
 | Memory grows | A file can become noisy and unbounded. | 150-line `MEMORY.md` cap, `auto-*.md` overflow, consolidate merge/dedupe. |
 
-### Key Advantages
+### 🌟 Key Advantages
 
-- **Markdown Ground Truth**: `MEMORY.md` and `auto-*.md` can be opened, reviewed, edited, grepped, copied, or versioned.
-- **Derived index, not hidden state**: `memory.vec.sqlite` can be deleted and rebuilt from Markdown.
-- **Preflight recall**: Memory is injected before the main model answers instead of hoping the model calls a search tool.
-- **Hot-path budget**: Default Preflight budget is **800ms**, with QueryIntent, sidecar query, and fallback all bounded.
-- **Protected user notes**: `/remember` writes `[user]` entries that consolidate must not remove or rewrite.
-- **Sidecar isolation**: embedding, vector scan, MMR, stats, and reindex run outside the extension process, while writes stay owned by `MemoryStore`.
-- **Subagent policy**: root sessions get Memory Cap + Episodic Preflight; subagents get Memory Cap only by default.
-- **Graceful fallback**: if sidecar recall is empty, timed out, or unavailable, the turn still runs.
+- 📓 **Markdown Ground Truth**: `MEMORY.md` and `auto-*.md` can be opened, reviewed, edited, grepped, copied, or versioned.
+- 🏗️ **Derived index, not hidden state**: `memory.vec.sqlite` can be deleted and rebuilt from Markdown.
+- 🔎 **Preflight recall**: Memory is injected before the main model answers instead of hoping the model calls a search tool.
+- ⏱️ **Hot-path budget**: Default Preflight budget is **800ms**, with QueryIntent, sidecar query, and fallback all bounded.
+- 🔒 **Protected user notes**: `/remember` writes `[user]` entries that consolidate must not remove or rewrite.
+- 🔗 **UDS, not HTTP**: the agent talks to the sidecar over `node:net` Unix domain sockets with JSONL frames, so there is no local HTTP server or port to secure.
+- 🏭 **Sidecar process isolation**: embedding, vector scan, MMR, stats, and reindex run in a spawned Node process, while writes stay owned by `MemoryStore`.
+- 💤 **Daemon-safe writes**: `session_shutdown` only appends metadata; heavier consolidation and shutdown-queue draining are intended for `pi-memory maintenance` or background scheduling.
+- 👥 **Subagent policy**: root sessions get Memory Cap + Episodic Preflight; subagents get Memory Cap only by default.
+- ☂️ **Graceful fallback**: if sidecar recall is empty, timed out, or unavailable, the turn still runs.
 
-### Comparison
+### ⚙️ Runtime Choices
+
+| Choice | Why it matters |
+| --- | --- |
+| `MEMORY.md` as Ground Truth | Durable memory remains inspectable and editable instead of becoming opaque database state. |
+| UDS JSONL over `node:net` | Local IPC stays private to the machine, avoids HTTP ports, and keeps request/response framing simple. |
+| Spawned sidecar process | Vector query/reindex work is isolated from the Pi extension process; failures degrade to Markdown fallback. |
+| Offline `maintenance` job | Consolidation and shutdown-queue draining can run outside the interactive agent turn. |
+| Bounded Preflight | QueryIntent, sidecar query, cache, and fallback all share a tight latency budget. |
+
+### ⚖️ Comparison
 
 `pi-memory` is not trying to be every memory system. The value is a specific Pi-native loop: Markdown ground truth, Preflight injection, sidecar retrieval, compaction export, and offline maintenance.
 
@@ -127,9 +144,9 @@ Where other systems are stronger:
 - Mem0: hosted multi-tenant memory API.
 - Letta: autonomous context repositories and sleep-time memory work.
 
-## How It Works
+## ⚙️ How It Works
 
-### Architecture
+### 🏗️ Architecture
 
 ```text
 Pi extension process
@@ -154,14 +171,14 @@ Pi extension process
   `- consolidate scheduler
        `- merge/dedupe -> rewrite Ground Truth -> reindex
 
-Sidecar process over UDS JSONL
+Sidecar process over UDS JSONL (`node:net`, no HTTP port)
   |- ping
   |- stats
   |- query: embed -> cosine scan -> MMR
   `- reindex: upsert chunks into memory.vec.sqlite
 ```
 
-### Read Path
+### 🔎 Read Path
 
 Root session:
 
@@ -186,7 +203,7 @@ Sidecar results
   -> if empty: no injection
 ```
 
-### Write Paths
+### ✍️ Write Paths
 
 | Path | Trigger | LLM? | Blocking? | Purpose |
 | --- | --- | --- | --- | --- |
@@ -195,7 +212,7 @@ Sidecar results
 | Shutdown Queue | `session_shutdown` + `pi-memory maintenance` | Only offline, when no compaction summary exists | No during shutdown | Recover facts from short or missed sessions |
 | Consolidate | overflow >= 12, 7 days, or daily cron | Optional | Offline/background | Dedupe, merge, prune obsolete todos |
 
-## Data And Memory Format
+## 💾 Data And Memory Format
 
 All artifacts live under one memory agent directory.
 
@@ -245,7 +262,7 @@ Rules:
 - Overflow entries spill to `auto-*.md`, with a pointer in `MEMORY.md`.
 - Vector chunks are derived from entries; by default long entries split beyond `PI_MEMORY_CHUNK_MAX_CHARS=512`.
 
-## Configuration
+## 🎛️ Configuration
 
 Optional env file locations are loaded in this order:
 
@@ -274,7 +291,7 @@ Common variables:
 
 See [`.env.example`](./.env.example) for the full list.
 
-### Embedders
+### 🛰️ Embedders
 
 | Embedder | Use When | Notes |
 | --- | --- | --- |
@@ -284,7 +301,7 @@ See [`.env.example`](./.env.example) for the full list.
 
 The Vector Index stores embedding provider, model, and dimension metadata. When they change, old chunks are cleared and rebuilt.
 
-## Commands
+## ⌨️ Commands
 
 Inside Pi:
 
@@ -316,7 +333,7 @@ Scheduler templates:
 - [`templates/consolidate.cmd.example`](./templates/consolidate.cmd.example)
 - [`templates/schtasks.example.txt`](./templates/schtasks.example.txt)
 
-## Diagnostics
+## 🩺 Diagnostics
 
 Use `/memory-status` or `pi-memory status` to inspect:
 
@@ -347,7 +364,7 @@ Use `PI_MEMORY_DEBUG=1` to log Preflight timings:
 }
 ```
 
-## Non-Goals
+## 🚫 Non-Goals
 
 - Replacing Pi compaction.
 - Replacing session search; use a dedicated session-search extension for old conversations.
@@ -356,7 +373,7 @@ Use `PI_MEMORY_DEBUG=1` to log Preflight timings:
 - Storing full chat transcripts as memory.
 - Adding multi-second reflection to every user turn.
 
-## Development
+## 🛠️ Development
 
 ```bash
 pnpm typecheck
@@ -366,12 +383,12 @@ pnpm build
 
 The sidecar IPC test opens a Unix domain socket. If it fails with `listen EPERM` inside a restricted sandbox, run the test in a normal local shell.
 
-## Docs
+## 📚 Docs
 
 - [Chinese README](./doc/README-zh.md)
 - [Roadmap](./doc/ROADMAP.md)
 - [UBIQUITOUS_LANGUAGE.md](./UBIQUITOUS_LANGUAGE.md) - domain glossary
 
-## License
+## 📜 License
 
 MIT

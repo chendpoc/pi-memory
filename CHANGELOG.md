@@ -1,5 +1,12 @@
 # @chendpoc/pi-memory
 
+## 0.2.2
+
+### Patch Changes
+
+- Document that `pi-memory init` runs automatically via postinstall and first session; manual init is optional.
+- Add package logo asset and polish README/README-zh (branding, `pi install npm:` path, runtime choices).
+
 ## 0.2.1
 
 ### Patch Changes

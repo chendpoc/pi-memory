@@ -46,6 +46,6 @@ describe("warmSidecar", () => {
 
     await warmSidecar("/tmp/sidecar.sock");
 
-    expect(mockQuery).toHaveBeenCalledWith("/tmp/sidecar.sock", ".", 500);
+    expect(mockQuery).toHaveBeenCalledWith("/tmp/sidecar.sock", ".", { timeoutMs: 500 });
   });
 });

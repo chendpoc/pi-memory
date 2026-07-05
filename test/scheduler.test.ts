@@ -51,6 +51,19 @@ describe("launchd plist", () => {
   });
 });
 
+async function withPlatform(
+  platform: NodeJS.Platform,
+  run: () => void | Promise<void>,
+): Promise<void> {
+  const originalPlatform = process.platform;
+  Object.defineProperty(process, "platform", { value: platform });
+  try {
+    await run();
+  } finally {
+    Object.defineProperty(process, "platform", { value: originalPlatform });
+  }
+}
+
 describe("scheduler sync guard", () => {
   it("respects PI_MEMORY_SKIP_SCHEDULER_SYNC", () => {
     expect(isSchedulerSyncDisabled({ PI_MEMORY_SKIP_SCHEDULER_SYNC: "1" })).toBe(true);
@@ -58,44 +71,45 @@ describe("scheduler sync guard", () => {
   });
 
   it("never throws when launchd sync fails", async () => {
-    vi.mocked(syncLaunchdMaintenanceJob).mockRejectedValueOnce(
-      new Error("launchctl bootstrap failed: gui session unavailable"),
-    );
+    await withPlatform("darwin", async () => {
+      vi.mocked(syncLaunchdMaintenanceJob).mockRejectedValueOnce(
+        new Error("launchctl bootstrap failed: gui session unavailable"),
+      );
 
-    const result = await syncMaintenanceScheduler({ agentDir: "/tmp/agent" });
+      const result = await syncMaintenanceScheduler({ agentDir: "/tmp/agent" });
 
-    expect(result.status).toBe("failed");
-    if (result.status === "failed") {
-      expect(result.message).toContain("launchctl bootstrap failed");
-    }
+      expect(result.status).toBe("failed");
+      if (result.status === "failed") {
+        expect(result.message).toContain("launchctl bootstrap failed");
+      }
+    });
   });
 
   it("surfaces bootstrapped retry when plist is unchanged", async () => {
-    vi.mocked(syncLaunchdMaintenanceJob).mockResolvedValueOnce({
-      label: LAUNCHD_LABEL,
-      plistPath: "/Users/me/Library/LaunchAgents/com.pi.memory.maintenance.plist",
-      changed: false,
-      bootstrapped: true,
-      removedLegacy: [],
-    });
+    await withPlatform("darwin", async () => {
+      vi.mocked(syncLaunchdMaintenanceJob).mockResolvedValueOnce({
+        label: LAUNCHD_LABEL,
+        plistPath: "/Users/me/Library/LaunchAgents/com.pi.memory.maintenance.plist",
+        changed: false,
+        bootstrapped: true,
+        removedLegacy: [],
+      });
 
-    const result = await syncMaintenanceScheduler({ agentDir: "/tmp/agent" });
-    expect(result.status).toBe("synced");
-    if (result.status === "synced") {
-      expect(result.bootstrapped).toBe(true);
-      expect(result.changed).toBe(false);
-    }
+      const result = await syncMaintenanceScheduler({ agentDir: "/tmp/agent" });
+      expect(result.status).toBe("synced");
+      if (result.status === "synced") {
+        expect(result.bootstrapped).toBe(true);
+        expect(result.changed).toBe(false);
+      }
+    });
   });
 
   it("skips on unsupported platform", async () => {
-    const originalPlatform = process.platform;
-    Object.defineProperty(process, "platform", { value: "linux" });
-
-    const result = await syncMaintenanceScheduler();
-    expect(result.status).toBe("skipped");
-    expect(result.status === "skipped" && result.reason).toBe("unsupported-platform");
-
-    Object.defineProperty(process, "platform", { value: originalPlatform });
+    await withPlatform("linux", async () => {
+      const result = await syncMaintenanceScheduler();
+      expect(result.status).toBe("skipped");
+      expect(result.status === "skipped" && result.reason).toBe("unsupported-platform");
+    });
   });
 
   it("requires uid and home before attempting launchd", () => {

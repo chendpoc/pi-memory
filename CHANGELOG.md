@@ -1,5 +1,11 @@
 # @chendpoc/pi-memory
 
+## 0.3.2
+
+### Patch Changes
+
+- [`456ffd8`](https://github.com/chendpoc/pi-memory/commit/456ffd84a1149e892c2eb10dfdb5811c7468486e) Thanks [@chendpoc](https://github.com/chendpoc)! - Add a public launch kit, refine the roadmap for reader-facing outcomes, and include public docs in the package tarball.
+
 ## 0.3.1
 
 ### Patch Changes

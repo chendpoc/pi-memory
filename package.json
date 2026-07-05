@@ -1,6 +1,6 @@
 {
   "name": "@chendpoc/pi-memory",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Cross-session episodic memory for Pi agent — MEMORY.md ground truth, JSONL sidecar retrieval, and Preflight injection",
   "type": "module",
   "main": "./dist/index.js",

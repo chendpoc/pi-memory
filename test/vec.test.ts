@@ -4,8 +4,18 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { mmrSelect } from "../src/sidecar/server/vec/mmr.js";
+import { blobToEmbedding, embeddingToBlob } from "../src/sidecar/server/vec/embeddingCodec.js";
 import { resetEmbedderForTests } from "../src/sidecar/server/vec/embedder.js";
 import { getVecStore, resetVecStoreForTests } from "../src/sidecar/server/vec/store.js";
+
+describe("embeddingCodec", () => {
+  it("round-trips float32 embeddings", () => {
+    const original = new Float32Array([1, 2, 3.5]);
+    const blob = embeddingToBlob(original);
+    const restored = blobToEmbedding(blob);
+    expect(Array.from(restored)).toEqual(Array.from(original));
+  });
+});
 
 describe("mmrSelect", () => {
   it("prefers diverse results over near-duplicates", () => {

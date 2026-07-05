@@ -1,18 +1,11 @@
-// Agent 侧：connect-or-create、spawn lock、execa 生命周期
-import { readFileSync, unlinkSync, writeFileSync } from "node:fs";
-
+// Agent 侧：connect-or-create、execa 生命周期
 import { execa } from "execa";
 
-import { SIDECAR_SPAWN_LOCK_FILE } from "../constants/paths.js";
-import {
-  SIDECAR_FORCE_KILL_DELAY_MS,
-  SIDECAR_SPAWN_LOCK_STALE_MS,
-  SIDECAR_START_TIMEOUT_MS,
-} from "../constants/timing.js";
-import { ensureDirSync, joinPath, pathDirname, pathExists } from "../utils/fs.js";
-import { nowMs } from "../utils/time.js";
+import { SIDECAR_FORCE_KILL_DELAY_MS, SIDECAR_START_TIMEOUT_MS } from "../constants/timing.js";
+import { ensureDirSync, pathDirname } from "../utils/fs.js";
 import { ping } from "./client.js";
 import { resolveSidecarEntry } from "./paths.js";
+import { acquireSpawnLock, releaseSpawnLock } from "./spawnLock.js";
 import { canConnect, waitUntilReady } from "./utils.js";
 
 export { resolveSidecarEntry } from "./paths.js";
@@ -82,53 +75,4 @@ class SidecarManager {
     await this.child;
     this.child = undefined;
   }
-}
-
-function spawnLockPath(socketPath: string): string {
-  return joinPath(pathDirname(socketPath), SIDECAR_SPAWN_LOCK_FILE);
-}
-
-function acquireSpawnLock(socketPath: string): boolean {
-  const lockPath = spawnLockPath(socketPath);
-  for (let i = 0; i < 5; i++) {
-    try {
-      writeFileSync(lockPath, `${process.pid}\n${nowMs()}\n`, { flag: "wx" });
-      return true;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-      if (isLockStale(lockPath)) {
-        try {
-          unlinkSync(lockPath);
-        } catch {}
-        continue;
-      }
-      return false;
-    }
-  }
-  return false;
-}
-
-function isLockStale(lockPath: string): boolean {
-  if (!pathExists(lockPath)) return false;
-  try {
-    const [pidLine = "", tsLine = "0"] = readFileSync(lockPath, "utf8").trim().split("\n");
-    const pid = Number.parseInt(pidLine, 10);
-    const ts = Number.parseInt(tsLine, 10);
-    if (Number.isFinite(pid)) {
-      try {
-        process.kill(pid, 0);
-      } catch {
-        return true;
-      }
-    }
-    return !Number.isFinite(ts) || nowMs() - ts > SIDECAR_SPAWN_LOCK_STALE_MS;
-  } catch {
-    return true;
-  }
-}
-
-function releaseSpawnLock(socketPath: string): void {
-  try {
-    unlinkSync(spawnLockPath(socketPath));
-  } catch {}
 }

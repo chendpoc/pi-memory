@@ -4,6 +4,7 @@ export type CliCommand =
   | "drain-shutdown-queue"
   | "init"
   | "status"
+  | "scheduler-sync"
   | "help";
 
 export type CommonCliOptions = {
@@ -30,7 +31,8 @@ export type ParsedCli =
   | { command: "maintenance"; options: MaintenanceCliOptions }
   | { command: "drain-shutdown-queue"; options: DrainShutdownQueueCliOptions }
   | { command: "init"; options: InitCliOptions }
-  | { command: "status"; options: StatusCliOptions };
+  | { command: "status"; options: StatusCliOptions }
+  | { command: "scheduler-sync"; options: CommonCliOptions };
 
 function parseCommonFlags(
   rest: string[],
@@ -133,6 +135,16 @@ export function parseCliArgs(argv: string[]): ParsedCli {
     return { command: "drain-shutdown-queue", options: parsed };
   }
 
+  if (command === "scheduler") {
+    const [subcommand, ...subRest] = rest;
+    if (subcommand !== "sync") {
+      return { command: "help", error: "Usage: pi-memory scheduler sync" };
+    }
+    const parsed = parseCommonFlags(subRest, { verbose: false });
+    if ("command" in parsed) return parsed;
+    return { command: "scheduler-sync", options: parsed };
+  }
+
   return { command: "help", error: `Unknown command: ${command}` };
 }
 
@@ -144,6 +156,7 @@ Usage:
   pi-memory maintenance [options]
   pi-memory consolidate [options]
   pi-memory drain-shutdown-queue [options]
+  pi-memory scheduler sync [options]
 
 Commands:
   init                    Create MEMORY.md from template when missing or empty
@@ -151,6 +164,7 @@ Commands:
   maintenance             Daily job: consolidate, then drain shutdown queue
   consolidate             Run consolidate job (dedupe + optional reindex)
   drain-shutdown-queue    Ingest durable facts from queued session shutdown metadata
+  scheduler sync          Install or refresh the OS maintenance scheduler (macOS launchd)
 
 Options:
   --agent-dir PATH        Memory data directory (overrides PI_MEMORY_AGENT_DIR)
@@ -164,6 +178,7 @@ Environment:
   PI_MEMORY_ENV_FILE        Explicit .env path
   PI_MEMORY_AGENT_DIR       Memory data root; default ~/.pi/pi-memory-data
   PI_MEMORY_DEBUG=1         Debug stderr logs (extension preflight + CLI)
+  PI_MEMORY_SKIP_SCHEDULER_SYNC=1  Skip automatic launchd install/update
   NO_COLOR                  Disable chalk colors
 
 Examples:

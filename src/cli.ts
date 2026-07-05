@@ -11,6 +11,7 @@ import {
 import { createCliLog } from "./cli/log.js";
 import { CLI_HELP, parseCliArgs } from "./cli/parseArgs.js";
 import { runInitCommand } from "./cli/init.js";
+import { runSchedulerSyncCommand } from "./cli/schedulerSync.js";
 import { runStatusCommand } from "./cli/status.js";
 import { theme } from "./cli/theme.js";
 import { createMemoryStore } from "./store/index.js";
@@ -34,6 +35,11 @@ async function main(): Promise<number> {
   if (parsed.command === "init") {
     const log = createCliLog({ verbose: true, debug: parsed.options.verbose });
     return runInitCommand(agentDir, log);
+  }
+
+  if (parsed.command === "scheduler-sync") {
+    const log = createCliLog({ verbose: true, debug: parsed.options.verbose });
+    return runSchedulerSyncCommand(agentDir, log);
   }
 
   if (parsed.command === "status") {

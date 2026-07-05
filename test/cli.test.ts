@@ -46,6 +46,13 @@ describe("parseCliArgs", () => {
     });
   });
 
+  it("parses scheduler sync command", () => {
+    expect(parseCliArgs(["scheduler", "sync", "--verbose"])).toEqual({
+      command: "scheduler-sync",
+      options: { verbose: true, agentDir: undefined },
+    });
+  });
+
   it("rejects unknown commands", () => {
     expect(parseCliArgs(["nope"])).toEqual({
       command: "help",

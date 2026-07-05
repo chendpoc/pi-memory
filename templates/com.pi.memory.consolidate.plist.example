@@ -2,14 +2,13 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
   "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
-  Install:
-    1. Replace __HOME__, __NODE__, __CLI__ below.
-    2. cp templates/com.pi.memory.consolidate.plist.example \
-         ~/Library/LaunchAgents/com.pi.memory.maintenance.plist
-    3. launchctl load ~/Library/LaunchAgents/com.pi.memory.maintenance.plist
-    4. launchctl start com.pi.memory.maintenance   # manual test
+  Managed automatically by pi-memory (`scheduler sync` on postinstall, init, session_start).
+  Reference copy — normally do not install by hand.
 
-  Logs: __HOME__/.pi/logs/maintenance.{log,err.log}
+  Manual test after sync:
+    launchctl start com.pi.memory.maintenance
+
+  Logs: __HOME__/.pi/pi-memory-data/logs/maintenance.{log,err.log}
 -->
 <plist version="1.0">
 <dict>
@@ -18,11 +17,9 @@
 
   <key>ProgramArguments</key>
   <array>
-    <string>__NODE__</string>
-    <string>__CLI__</string>
-    <string>maintenance</string>
-    <string>--cron</string>
-    <string>--verbose</string>
+    <string>/bin/sh</string>
+    <string>-c</string>
+    <string>mkdir -p '__HOME__/.pi/pi-memory-data/logs' &amp;&amp; exec '__NODE__' '__CLI__' maintenance --cron --verbose >> '__HOME__/.pi/pi-memory-data/logs/maintenance.log' 2>> '__HOME__/.pi/pi-memory-data/logs/maintenance.err.log'</string>
   </array>
 
   <key>StartCalendarInterval</key>
@@ -32,11 +29,6 @@
     <key>Minute</key>
     <integer>0</integer>
   </dict>
-
-  <key>StandardOutPath</key>
-  <string>__HOME__/.pi/logs/maintenance.log</string>
-  <key>StandardErrorPath</key>
-  <string>__HOME__/.pi/logs/maintenance.err.log</string>
 
   <key>EnvironmentVariables</key>
   <dict>

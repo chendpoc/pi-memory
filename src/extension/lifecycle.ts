@@ -23,7 +23,6 @@ export async function bootstrapSidecar(opts: {
   sidecarPaths: SidecarPaths;
   reindexScheduler: ReindexScheduler | null;
 }): Promise<SidecarBootstrapResult> {
-  await opts.store.ensureInitialized();
   await ensureSidecarRunning({
     socketPath: opts.sidecarPaths.socketPath,
     dbPath: opts.sidecarPaths.dbPath,

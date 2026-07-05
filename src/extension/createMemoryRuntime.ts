@@ -13,6 +13,7 @@ import { isSubagentSession, readParentSession } from "../utils/session/index.js"
 import { formatTimestamp } from "../utils/time.js";
 import { MemoryStore } from "../store/memoryStore.js";
 import type { ConsolidateScheduler } from "../consolidate/scheduler.js";
+import { syncMaintenanceScheduler } from "../scheduler/sync.js";
 import type { ReindexScheduler } from "../sidecar/reindexBridge.js";
 import type { SidecarPaths } from "../sidecar/paths.js";
 
@@ -71,6 +72,8 @@ class MemoryRuntimeImpl implements MemoryRuntime {
     this.turnPreflight = null;
 
     await this.refreshLlm(ctx, pi);
+    await this.store.ensureInitialized();
+    void syncMaintenanceScheduler({ agentDir: this.store.agentDir });
 
     try {
       const sidecar = await bootstrapSidecar({

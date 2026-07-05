@@ -5,7 +5,7 @@
 # Prerequisites:
 #   1. pnpm build
 #   2. Edit templates/consolidate.cmd.example (__NODE__, __CLI__)
-#   3. mkdir %USERPROFILE%\.pi\logs
+#   3. `logs/` is created by Pi session start or `pi-memory init`; consolidate.cmd also mkdirs before redirect.
 #
 # Option A — schtasks with wrapper script (recommended):
 #
@@ -31,4 +31,4 @@
 # Remove:
 #   schtasks /Delete /TN "PiMemoryMaintenance" /F
 #
-# Logs: %USERPROFILE%\.pi\logs\maintenance.log
+# Logs: %USERPROFILE%\.pi\pi-memory-data\logs\maintenance.log

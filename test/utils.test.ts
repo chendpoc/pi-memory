@@ -8,6 +8,7 @@ import {
   buildMaintenanceCliArgs,
   defaultMemoryAgentDir,
   defaultPiConfigDir,
+  defaultPiLogsDir,
   expandHomePath,
   getAgentDir,
   getConsolidateSchedulerKind,
@@ -57,6 +58,7 @@ describe("paths", () => {
     expect(defaultPiConfigDir()).toMatch(/\.pi$/);
     expect(getAgentDir()).toMatch(/\.pi[\\/]agent$/);
     expect(defaultMemoryAgentDir()).toMatch(/\.pi[\\/]pi-memory-data$/);
+    expect(defaultPiLogsDir()).toMatch(/\.pi[\\/]pi-memory-data[\\/]logs$/);
   });
 });
 

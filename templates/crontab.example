@@ -6,9 +6,9 @@
 #
 # Install:
 #   1. Replace paths below, then: crontab -e
-#   2. Ensure ~/.pi/logs exists: mkdir -p ~/.pi/logs
+#   2. `logs/` is created by Pi session start or `pi-memory init`; the mkdir below covers cron-only installs.
 #
 # __NODE__ = which node
 # __CLI__  = path to pi-memory/dist/cli.js (after pnpm build)
 #
-0 3 * * * PI_MEMORY_ENV_FILE=$HOME/.pi/agent/pi-memory.env PI_MEMORY_AGENT_DIR=$HOME/.pi/pi-memory-data __NODE__ __CLI__ maintenance --cron --verbose >> $HOME/.pi/logs/maintenance.log 2>&1
+0 3 * * * mkdir -p $HOME/.pi/pi-memory-data/logs && PI_MEMORY_ENV_FILE=$HOME/.pi/agent/pi-memory.env PI_MEMORY_AGENT_DIR=$HOME/.pi/pi-memory-data __NODE__ __CLI__ maintenance --cron --verbose >> $HOME/.pi/pi-memory-data/logs/maintenance.log 2>&1

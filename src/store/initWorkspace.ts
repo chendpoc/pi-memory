@@ -1,5 +1,6 @@
 import { DEFAULT_MEMORY_FILE } from "../constants/memory.js";
-import { joinPath, readText } from "../utils/fs.js";
+import { PI_LOGS_SUBDIR } from "../constants/paths.js";
+import { ensureDir, joinPath, readText } from "../utils/fs.js";
 import { MarkdownMemoryBackend } from "./backend.js";
 import { defaultMemoryTemplate } from "./markdown/template.js";
 import { resolveAgentDir } from "./paths.js";
@@ -13,7 +14,7 @@ export type InitMemoryWorkspaceResult = {
 };
 
 /**
- * Ensure the memory data directory exists and MEMORY.md follows the canonical template.
+ * Ensure the memory data directory exists, `logs/` is present, and MEMORY.md follows the canonical template.
  * Never overwrites a non-empty MEMORY.md.
  */
 export async function initializeMemoryWorkspace(agentDir: string): Promise<InitMemoryWorkspaceResult> {
@@ -22,6 +23,7 @@ export async function initializeMemoryWorkspace(agentDir: string): Promise<InitM
   const backend = new MarkdownMemoryBackend(memoryFile);
 
   await backend.ensureAgentDir();
+  await ensureDir(joinPath(resolved, PI_LOGS_SUBDIR));
 
   const existing = await backend.readText(memoryFile);
   if (existing.trim()) {

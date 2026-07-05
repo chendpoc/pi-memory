@@ -10,12 +10,17 @@ export const SIDECAR_DB_FILE = "memory.vec.sqlite";
 export const SIDECAR_PID_SUFFIX = ".pid";
 export const SIDECAR_SPAWN_LOCK_FILE = "sidecar.spawn.lock";
 
-/** Consolidate / maintenance scheduler log basenames (under ~/.pi/logs). */
+/** Consolidate / maintenance scheduler log basenames (under `<agentDir>/logs`). */
 export const CONSOLIDATE_LOG_FILE = "maintenance.log";
 export const CONSOLIDATE_ERR_LOG_FILE = "maintenance.err.log";
 
 /** OS scheduler identifiers. */
 export const LAUNCHD_LABEL = "com.pi.memory.maintenance";
+/** Pre-0.3.x / dev labels removed during scheduler sync. */
+export const LEGACY_LAUNCHD_LABELS = [
+  "dev.pi.memory-consolidate",
+  "com.pi.memory.consolidate",
+] as const;
 export const SCHTASKS_TASK_NAME = "PiMemoryMaintenance";
 
 export const SCHEDULER_TEMPLATE_FILES = {

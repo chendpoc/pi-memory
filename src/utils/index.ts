@@ -8,6 +8,8 @@ export {
 
 export {
   CONFIG_DIR_NAME,
+  defaultConsolidateErrLogPath,
+  defaultConsolidateLogPath,
   defaultMemoryAgentDir,
   defaultPiConfigDir,
   defaultPiMemoryEnvFile,
@@ -15,6 +17,9 @@ export {
   expandHomePath,
   getAgentDir,
   mkdirOptions,
+  resolveConsolidateErrLogPath,
+  resolveConsolidateLogPath,
+  resolvePiLogsDir,
   secureDirMode,
   secureFileMode,
 } from "./paths.js";

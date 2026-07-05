@@ -1,8 +1,9 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
+import { PI_LOGS_SUBDIR } from "../src/constants/paths.js";
 import { initializeMemoryWorkspace } from "../src/store/initWorkspace.js";
 import { defaultMemoryTemplate } from "../src/store/markdown/template.js";
 
@@ -20,6 +21,7 @@ describe("initializeMemoryWorkspace", () => {
     expect(result.created).toBe(true);
     expect(result.skipped).toBe(false);
     expect(readFileSync(result.memoryFile, "utf8")).toBe(defaultMemoryTemplate());
+    expect(existsSync(join(result.agentDir, PI_LOGS_SUBDIR))).toBe(true);
   });
 
   it("skips when MEMORY.md already has content", async () => {

@@ -10,4 +10,6 @@ REM Or point /TR directly at this script after editing paths below.
 set PI_MEMORY_ENV_FILE=%USERPROFILE%\.pi\agent\pi-memory.env
 set PI_MEMORY_AGENT_DIR=%USERPROFILE%\.pi\pi-memory-data
 
-"__NODE__" "__CLI__" maintenance --cron --verbose >> "%USERPROFILE%\.pi\logs\maintenance.log" 2>> "%USERPROFILE%\.pi\logs\maintenance.err.log"
+if not exist "%USERPROFILE%\.pi\pi-memory-data\logs" mkdir "%USERPROFILE%\.pi\pi-memory-data\logs"
+
+"__NODE__" "__CLI__" maintenance --cron --verbose >> "%USERPROFILE%\.pi\pi-memory-data\logs\maintenance.log" 2>> "%USERPROFILE%\.pi\pi-memory-data\logs\maintenance.err.log"

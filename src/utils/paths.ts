@@ -39,16 +39,29 @@ export function defaultPiMemoryEnvFile(): string {
   return join(getAgentDir(), PI_MEMORY_ENV_FILE_NAME);
 }
 
+/** Maintenance logs live under the memory agent dir (`<agentDir>/logs`). */
+export function resolvePiLogsDir(agentDir: string): string {
+  return join(agentDir, PI_LOGS_SUBDIR);
+}
+
 export function defaultPiLogsDir(): string {
-  return join(defaultPiConfigDir(), PI_LOGS_SUBDIR);
+  return resolvePiLogsDir(defaultMemoryAgentDir());
+}
+
+export function resolveConsolidateLogPath(agentDir: string): string {
+  return join(resolvePiLogsDir(agentDir), CONSOLIDATE_LOG_FILE);
 }
 
 export function defaultConsolidateLogPath(): string {
-  return join(defaultPiLogsDir(), CONSOLIDATE_LOG_FILE);
+  return resolveConsolidateLogPath(defaultMemoryAgentDir());
+}
+
+export function resolveConsolidateErrLogPath(agentDir: string): string {
+  return join(resolvePiLogsDir(agentDir), CONSOLIDATE_ERR_LOG_FILE);
 }
 
 export function defaultConsolidateErrLogPath(): string {
-  return join(defaultPiLogsDir(), CONSOLIDATE_ERR_LOG_FILE);
+  return resolveConsolidateErrLogPath(defaultMemoryAgentDir());
 }
 
 /** Directory mode for agent / socket parent dirs (Unix only; ignored on Windows). */

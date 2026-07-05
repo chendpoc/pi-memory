@@ -39,6 +39,9 @@
   "files": [
     "dist",
     "doc/README-zh.md",
+    "doc/ROADMAP.md",
+    "doc/ROADMAP-zh.md",
+    "doc/LAUNCH-KIT.md",
     "templates/MEMORY.md.example",
     "templates/com.pi.memory.consolidate.plist.example",
     "templates/consolidate.cmd.example",
@@ -60,6 +63,11 @@
     "pi-extension",
     "pi-agent",
     "episodic-memory",
+    "agent-memory",
+    "local-memory",
+    "markdown-memory",
+    "coding-agent",
+    "ai-memory",
     "recent-memory",
     "memory-recall"
   ],

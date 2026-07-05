@@ -1,8 +1,8 @@
 import { DEFAULT_MEMORY_FILE } from "../constants/memory.js";
-import { MarkdownMemoryBackend } from "../store/backend.js";
-import { defaultMemoryTemplate } from "../store/markdown/template.js";
-import { resolveAgentDir } from "../store/paths.js";
 import { joinPath, readText } from "../utils/fs.js";
+import { MarkdownMemoryBackend } from "./backend.js";
+import { defaultMemoryTemplate } from "./markdown/template.js";
+import { resolveAgentDir } from "./paths.js";
 
 export type InitMemoryWorkspaceResult = {
   agentDir: string;

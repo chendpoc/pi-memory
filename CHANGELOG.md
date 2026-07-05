@@ -2,6 +2,10 @@
 
 ## 0.2.4
 
+### Breaking Changes
+
+- Narrow the `@chendpoc/pi-memory` main export (`index.ts`): drop barrel re-exports of `constants/*`, `utils/*`, and sidecar IPC helpers. Public surface is now workspace bootstrap, agent-dir resolution, `MemoryStore` / `createMemoryStore`, maintenance jobs (`runConsolidateJob`, `runDrainShutdownQueueJob`), LLM adapter, and a small set of domain path/section constants.
+
 ### Patch Changes
 
 - Add `pi.image` gallery metadata for the [Pi package catalog](https://pi.dev/packages/@chendpoc/pi-memory) preview.

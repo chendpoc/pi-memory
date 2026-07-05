@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { initializeMemoryWorkspace } from "../src/init/workspace.js";
+import { initializeMemoryWorkspace } from "../src/store/initWorkspace.js";
 import { defaultMemoryTemplate } from "../src/store/markdown/template.js";
 
 describe("initializeMemoryWorkspace", () => {

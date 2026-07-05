@@ -1,4 +1,4 @@
-import { initializeMemoryWorkspace } from "../init/workspace.js";
+import { initializeMemoryWorkspace } from "../store/initWorkspace.js";
 
 import type { CliLog } from "./log.js";
 

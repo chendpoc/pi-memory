@@ -1,4 +1,4 @@
-import compact from "lodash/compact.js";
+import { compact } from "es-toolkit";
 import { Type, type Static } from "typebox";
 import { Value } from "typebox/value";
 

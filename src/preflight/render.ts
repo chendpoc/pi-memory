@@ -1,4 +1,4 @@
-import compact from "lodash/compact.js";
+import { compact } from "es-toolkit";
 
 import {
   PRIVATE_MEMORY_BODY_BYTE_CAP,

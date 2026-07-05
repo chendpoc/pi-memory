@@ -1,4 +1,4 @@
-import pickBy from "lodash/pickBy.js";
+import { pickBy } from "es-toolkit";
 
 import { complete, getEnvApiKey, getModels } from "@earendil-works/pi-ai/compat";
 
@@ -9,7 +9,7 @@ import { extractTextFromResponse } from "./extractText.js";
 import { parseModelSpec } from "./modelSpec.js";
 
 function toProviderEnv(env: NodeJS.ProcessEnv): Record<string, string> {
-  return pickBy(env, (value): value is string => value !== undefined);
+  return pickBy(env, (value): value is string => value !== undefined) as Record<string, string>;
 }
 
 export function createStandaloneLlmClient(

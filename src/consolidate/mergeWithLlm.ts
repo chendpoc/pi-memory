@@ -1,4 +1,4 @@
-import keyBy from "lodash/keyBy.js";
+import { keyBy } from "es-toolkit";
 
 import type { LlmClient } from "../adapters/llm/types.js";
 import { parseMemoryMarkdown } from "../store/markdown/parse.js";

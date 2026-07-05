@@ -1,4 +1,4 @@
-import debounce from "lodash/debounce.js";
+import { debounce } from "es-toolkit";
 
 import { DEFAULT_CONSOLIDATE_CHECK_INTERVAL_MS, DEFAULT_CONSOLIDATE_DEBOUNCE_MS } from "../constants/timing.js";
 

@@ -1,11 +1,11 @@
-import groupBy from "lodash/groupBy.js";
+import { groupBy } from "es-toolkit";
 
 import type { ParsedEntry } from "../store/types.js";
 import { formatEntryLine, formatSectionHeader } from "../store/markdown/format.js";
 import { MEMORY_SECTIONS } from "../store/types.js";
 
 export function formatEntriesForConsolidation(entries: ParsedEntry[]): string {
-  const grouped = groupBy(entries, "section");
+  const grouped = groupBy(entries, (entry) => entry.section);
   const lines: string[] = [];
 
   for (const section of MEMORY_SECTIONS) {

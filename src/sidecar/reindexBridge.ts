@@ -1,4 +1,4 @@
-import debounce from "lodash/debounce.js";
+import { debounce } from "es-toolkit";
 
 import { DEFAULT_REINDEX_DEBOUNCE_MS } from "../constants/timing.js";
 

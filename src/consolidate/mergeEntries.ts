@@ -1,4 +1,4 @@
-import orderBy from "lodash/orderBy.js";
+import { orderBy } from "es-toolkit";
 
 import { entryDedupeKey } from "./entryKey.js";
 import type { ParsedEntry } from "../store/types.js";
@@ -18,5 +18,5 @@ export function dedupeEntries(entries: ParsedEntry[]): ParsedEntry[] {
     }
   }
 
-  return orderBy([...byKey.values()], [(entry) => SECTION_RANK.get(entry.section) ?? MEMORY_SECTIONS.length]);
+  return orderBy([...byKey.values()], [(entry) => SECTION_RANK.get(entry.section) ?? MEMORY_SECTIONS.length], ["asc"]);
 }

@@ -1,6 +1,5 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import findLastIndex from "lodash/findLastIndex.js";
 
 import { createLlmClient, type LlmClient } from "./adapters/llm/index.js";
 import { loadEnv, readPiMemoryEnv, resolveMemoryAgentDir } from "./config/index.js";
@@ -55,7 +54,7 @@ function setUserMessageText(message: AgentMessage, text: string): AgentMessage {
 }
 
 function findLastUserMessageIndex(messages: AgentMessage[]): number {
-  return findLastIndex(messages, (message) => message.role === "user");
+  return messages.findLastIndex((message) => message.role === "user");
 }
 
 async function refreshLlm(ctx: ExtensionContext, pi: ExtensionAPI): Promise<void> {

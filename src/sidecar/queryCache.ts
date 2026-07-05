@@ -1,7 +1,7 @@
 import { LRUCache } from "lru-cache";
 
 import { QUERY_CACHE_MAX_ENTRIES } from "../constants/timing.js";
-import type { MemoryEntry } from "../sidecar/protocol.js";
+import type { MemoryEntry } from "./protocol.js";
 
 type CacheValue = {
   results: MemoryEntry[];

@@ -7,7 +7,7 @@ import {
   SIDECAR_QUERY_TIMEOUT_MS,
   SIDECAR_REINDEX_TIMEOUT_MS,
 } from "../constants/timing.js";
-import { JsonlFramer, parseJsonlLine, serializeJsonlFrame } from "../ipc/jsonlFramer.js";
+import { JsonlFramer, parseJsonlLine, serializeJsonlFrame } from "../utils/jsonl.js";
 import { isErrorResponse, type IndexDocument, type IndexStats, type SidecarResponse } from "./protocol.js";
 
 export function sidecarRequest<T extends SidecarResponse>(

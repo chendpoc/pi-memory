@@ -2,7 +2,7 @@ import { debounce } from "es-toolkit";
 
 import { DEFAULT_REINDEX_DEBOUNCE_MS } from "../constants/timing.js";
 
-import { sidecarQueryCache } from "../preflight/queryCache.js";
+import { sidecarQueryCache } from "./queryCache.js";
 import { ensureSidecarRunning, type SidecarOpts } from "./sidecarManager.js";
 import { reindex } from "./client.js";
 import type { IndexDocument } from "./protocol.js";

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { JsonlFramer, parseJsonlLine, serializeJsonlFrame } from "../src/ipc/jsonlFramer.js";
+import { JsonlFramer, parseJsonlLine, serializeJsonlFrame } from "../src/utils/jsonl.js";
 
 describe("JsonlFramer", () => {
   it("extracts complete lines from partial chunks", () => {

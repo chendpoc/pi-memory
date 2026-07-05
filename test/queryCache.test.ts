@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { MemoryEntry } from "../src/sidecar/protocol.js";
-import { resetSidecarQueryCacheForTests, sidecarQueryCache } from "../src/preflight/queryCache.js";
+import { resetSidecarQueryCacheForTests, sidecarQueryCache } from "../src/sidecar/queryCache.js";
 
 const sampleResults: MemoryEntry[] = [
   {

@@ -1,4 +1,4 @@
-/** Incremental JSONL (one JSON object per line) framing for UDS IPC. */
+/** Incremental JSONL (one JSON object per line) framing for UDS IPC and queue files. */
 
 export class JsonlFramer {
   private buffer = "";

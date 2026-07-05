@@ -2,7 +2,7 @@ import { createServer, type Server, type Socket } from "node:net";
 import { writeFileSync } from "node:fs";
 
 import { SIDECAR_PID_SUFFIX } from "../../constants/paths.js";
-import { JsonlFramer, parseJsonlLine, serializeJsonlFrame } from "../../ipc/jsonlFramer.js";
+import { JsonlFramer, parseJsonlLine, serializeJsonlFrame } from "../../utils/jsonl.js";
 import { ensureDirSync, pathDirname } from "../../utils/fs.js";
 import { cleanupSocketFiles, removeSocketFile, secureSocketPath } from "../../utils/socket.js";
 import type { SidecarRequest, SidecarResponse } from "../protocol.js";

@@ -9,29 +9,37 @@
   <a href="README-zh.md">简体中文</a>
 </p>
 
-Pi coding agent 的跨 session 情景记忆扩展。
+给 Pi coding agent 使用的本地记忆扩展，让 Pi 能跨 session 记住你的偏好、项目约定、历史决策和未完成 TODO。
 
-`pi-memory` 给 Pi 增加一层本地、可审计的跨 session 记忆。它把长期事实保存在 **`MEMORY.md` 这个 Ground Truth** 里，把 `memory.vec.sqlite` 作为派生向量索引，并在主模型回答前通过 Preflight 注入相关的私有上下文。
+`pi-memory` 把长期笔记保存在本地 Markdown 中，在 Pi 回答前自动召回相关内容，并在写入前脱敏常见 secret。目标很简单：新开的 Pi session 应该带着你希望它记住的上下文开始，而不是依赖不透明的托管记忆服务。
 
 ## 🧠 这个 Package 做什么
 
-Pi 已经有长 session compaction，它解决的是“当前对话太长了怎么办”；但它不解决“新开 session 后忘记用户偏好、项目约定、历史决策和未完成 TODO”的问题。
+Pi 已经有长 session compaction，它能帮助当前长对话继续下去；但它不负责让未来的新 session 记住你的稳定偏好、项目规则、历史决策和未完成 TODO。
 
 `pi-memory` 补的是这条链路：
 
 ```text
-长期事实 -> MEMORY.md -> 派生向量索引 -> 每轮 Preflight 召回
+值得记住的事实 -> 本地 Markdown 记忆 -> 未来 turn 的私有上下文
 ```
 
 它提供：
 
-- ✍️ 通过 `/remember` 写入显式记忆。
-- 🔁 从 Pi compaction 自动导出长期事实。
-- 📥 用 Shutdown Queue 补捞短 session 或漏处理 session。
-- 🔦 在主模型运行前做每轮私有记忆召回。
-- 📄 用 Markdown 保存人类可编辑的事实，向量搜索只是可重建索引。
-- 🔌 通过本地 UDS sidecar 做向量召回和 reindex，不打开 HTTP 端口。
-- ⏳ daemon 友好的维护路径：shutdown 只追加元数据，consolidate 和 queue drain 可以离线执行。
+- ✍️ 用 `/remember` 保存明确要记住的内容。
+- 🔁 从 Pi compaction 中带出长期事实。
+- 📥 从短 session 或漏处理 session 中补捞有用信息。
+- 🔦 在每次回答前自动召回相关记忆，并作为私有上下文注入。
+- 🛡️ 在保存记忆前脱敏常见 secret 和 token。
+- 📄 用 Markdown 保存可审查、可编辑的记忆。
+- ☂️ 召回不可用时优雅降级，不打断 Pi 正常工作。
+- ⏳ 把较重的清理和整理放到离线维护任务中。
+
+## 🚀 0.3.0 新增内容
+
+- **更安全的记忆写入**：常见 API key、Bearer token、私钥、service account JSON、连接串和 `.env` 风格 secret 会在保存前被脱敏。
+- **更可靠的召回体验**：Pi turn 被取消时，记忆召回也会一起取消，不再等内部 timeout。
+- **更清晰的状态与维护输出**：`/memory-status`、`pi-memory status`、queue drain 和 reindex 触发使用更一致的统计。
+- **面向后续版本的更健康基础**：内部实现被简化并拆成更小的模块。这主要是维护者视角的变化，但能降低后续功能迭代风险。
 
 ## 📦 安装与启用
 
@@ -70,12 +78,12 @@ pnpm test
 
 ### 🌱 记忆工作区（自动初始化）
 
-**大多数用户不需要手动运行 `pi-memory init`。** 同一套 bootstrap（`initializeMemoryWorkspace`）会自动执行，且**不会覆盖非空的 `MEMORY.md`**：
+**大多数用户不需要手动运行 `pi-memory init`。** 记忆工作区会自动准备好，且**不会覆盖非空的 `MEMORY.md`**：
 
 | 时机 | 行为 |
 | --- | --- |
 | **`pnpm install`** | `postinstall` 执行 `pi-memory init`（或 pre-build 回退脚本） |
-| **首次 Pi session** | `session_start` → `MemoryStore.ensureInitialized()` |
+| **首次 Pi session** | Pi 检查或创建记忆工作区 |
 | **手动（可选）** | `pi-memory init` |
 
 仅在以下情况需要显式运行 `pi-memory init`：
@@ -97,43 +105,30 @@ pi-memory init   # 可选；见上文
 | 新 session 问“继续上次计划” | Agent 只能追问上下文，或基于当前仓库猜测。 | Preflight 召回匹配的 `MEMORY.md` 事实并注入私有参考上下文。 |
 | 用户说“记住这个 repo 用 Vitest” | 事实可能只留在当前 session 摘要里。 | `/remember` 写入 `[user]` 条目，consolidate 必须保留。 |
 | 长 session 触发压缩 | Compaction 只帮助当前 session 续聊，不必然产生跨 session 事实。 | 一次 dual-purpose summary 同时保留当前上下文并导出长期事实。 |
-| 启动 subagent | 可能重复父 session 的召回和记忆写入。 | Subagent 只拿 Memory Cap，只写新增 Compact Delta。 |
-| 向量 sidecar 不可用 | 如果是硬依赖，会直接影响对话。 | Preflight 静默回退到 Markdown 或空注入，主模型照常运行。 |
+| 启动 subagent | 可能继承过多上下文，或重复父 session 的记忆写入。 | Subagent 默认使用更小的记忆视图，减少噪声和重复写入。 |
+| 记忆召回不可用 | 如果是硬依赖，会直接影响对话。 | Pi 回退到 Markdown 或空注入，主模型照常运行。 |
 | 记忆持续增长 | 文件容易变成无边界流水账。 | `MEMORY.md` 150 行上限，`auto-*.md` 溢出，consolidate 合并去重。 |
 
 ### 🌟 核心优势
 
-- 📓 **Markdown Ground Truth**：`MEMORY.md` 和 `auto-*.md` 可以直接打开、审查、编辑、grep、复制或纳入版本控制。
-- 🏗️ **索引不是隐藏事实源**：`memory.vec.sqlite` 可以删除，并从 Markdown 重新构建。
-- 🔎 **Preflight 召回**：记忆在主模型回答前注入，而不是依赖模型主动调用搜索工具。
-- ⏱️ **热路径有预算**：默认 Preflight 预算是 **800ms**，QueryIntent、sidecar query 和 fallback 都有边界。
-- 🔒 **用户显式记忆受保护**：`/remember` 写入 `[user]` 条目，consolidate 不能删除或改写。
-- 🛡️ **写入前脱敏**：API key 和 token 在 `prepareEntryForWrite` 闸口被替换，不会进入 `MEMORY.md` 或向量索引。
-- 🔗 **UDS，不走 HTTP**：agent 通过 `node:net` Unix domain socket + JSONL frame 和 sidecar 通信，不需要本地 HTTP server，也没有额外端口暴露。
-- 🏭 **Sidecar 进程隔离**：embedding、向量扫描、MMR、stats 和 reindex 在独立 spawn 的 Node 进程中运行；写入仍由 `MemoryStore` 负责。
-- 💤 **daemon-safe 写入路径**：`session_shutdown` 只追加元数据；更重的 consolidate 和 shutdown-queue drain 交给 `pi-memory maintenance` 或后台调度。
-- 👥 **Subagent 策略**：root session 跑 Memory Cap + Episodic Preflight；subagent 默认只拿 Memory Cap。
-- ☂️ **优雅降级**：sidecar 召回为空、超时或不可用时，当前 turn 仍然继续。
-
-### ⚙️ Runtime 选择
-
-| 选择 | 为什么重要 |
-| --- | --- |
-| `MEMORY.md` 作为 Ground Truth | 长期记忆保持可审查、可编辑，而不是变成不透明数据库状态。 |
-| 基于 `node:net` 的 UDS JSONL | IPC 只在本机发生，避免 HTTP 端口，同时保持简单的 request/response frame。 |
-| spawn 独立 sidecar 进程 | 向量 query/reindex 与 Pi extension 进程隔离；失败时可降级到 Markdown fallback。 |
-| 离线 `maintenance` job | consolidate 和 shutdown-queue drain 可以在交互 turn 之外执行。 |
-| 有预算的 Preflight | QueryIntent、sidecar query、cache 和 fallback 都在明确延迟边界内运行。 |
+- 📓 **可审计的记忆**：`MEMORY.md` 和 `auto-*.md` 可以直接打开、审查、编辑、grep、复制或纳入版本控制。
+- 🔎 **回答前自动带上上下文**：Pi 在主模型回答前拿到相关私有记忆，不需要你手动粘贴旧上下文。
+- 🔒 **用户显式记忆受保护**：`/remember` 写入的条目会标记为用户创建，consolidate 必须保留。
+- 🛡️ **默认更安全**：常见 secret 和 token 会在进入长期记忆前被替换。
+- ☂️ **召回不是硬依赖**：召回为空、变慢或不可用时，当前 turn 仍然继续。
+- 💤 **减少交互打扰**：较重的整理和清理通过 maintenance 任务执行，不阻塞普通 Pi turn。
+- 🧹 **控制记忆增长**：主记忆文件有行数上限，溢出进入可审查文件，consolidate 合并重复内容。
+- 👥 **理解 subagent 场景**：root session 使用更完整召回；subagent 默认使用更小的记忆视图，减少噪声。
 
 ### ⚖️ 对比
 
-`pi-memory` 不试图成为所有 memory 系统的集合。它的价值是一个 Pi-native 闭环：Markdown ground truth、Preflight 注入、sidecar 检索、compaction export 和离线 maintenance。
+`pi-memory` 不试图成为所有 memory 系统的集合。它的价值是一个 Pi-native 闭环：本地 Markdown 记忆、回答前私有召回、compaction export 和离线 maintenance。
 
 | 系统 | 优势 | 与 `@chendpoc/pi-memory` 的差异 |
 | --- | --- | --- |
-| Cursor Rules / OpenCode `AGENTS.md` | 静态项目指令，注入行为可预测。 | 主要是用户手写规则，没有自动长期事实提取，也没有每轮 Episodic Preflight。 |
-| Claude Code Auto Memory | Agent 可以写本地记忆文件。 | 也是文件记忆，但没有 sidecar 向量召回，也没有 Pi compact/shutdown 集成。 |
-| `pi-hermes-memory` | 功能丰富，有 FTS5、失败记忆、纠正学习、安全扫描。 | 自动化更重；但没有 `<private_memory>` Preflight 闭环，也没有 sidecar 派生向量索引。 |
+| Cursor Rules / OpenCode `AGENTS.md` | 静态项目指令，注入行为可预测。 | 主要是用户手写规则，没有自动长期事实提取，也没有每轮回答前的记忆召回。 |
+| Claude Code Auto Memory | Agent 可以写本地记忆文件。 | 也是文件记忆，但没有 Pi 的 compaction/shutdown 集成，也没有回答前私有召回闭环。 |
+| `pi-hermes-memory` | 功能丰富，有 FTS5、失败记忆、纠正学习、安全扫描。 | 自动化更重；`pi-memory` 更窄，更强调 Markdown-first 和回答前私有召回。 |
 | OpenClaw memory-core | 成熟的文件+索引设计，有 dreaming、混合搜索、本地 embedding。 | OpenClaw 是更大的 memory 平台；`pi-memory` 更窄，聚焦 Pi extension。 |
 | Mem0 / Zep | 托管 memory API，有混合搜索、图和时序建模。 | 检索基础设施更强，但更偏外部服务/数据库，不以 Markdown 事实源为第一原则。 |
 | Letta | 上下文工程，git-backed memory repo 和 sleep-time compute。 | 自主记忆管理更强，但心智模型比 Pi extension lifecycle 更重。 |
@@ -148,6 +143,18 @@ pi-memory init   # 可选；见上文
 - Letta：自主 context repository 和 sleep-time memory work。
 
 ## ⚙️ 工作方式
+
+### ⚙️ 技术说明
+
+这些选择主要面向运维和贡献者，用来说明用户看到的“本地、可审查、有边界”的行为是如何实现的。
+
+| 选择 | 为什么重要 |
+| --- | --- |
+| `MEMORY.md` 作为 Ground Truth | 长期记忆保持可审查、可编辑，而不是变成不透明数据库状态。 |
+| 基于 `node:net` 的 UDS JSONL | IPC 只在本机发生，避免 HTTP 端口，同时保持简单的 request/response frame。 |
+| spawn 独立 sidecar 进程 | 向量 query/reindex 与 Pi extension 进程隔离；失败时可降级到 Markdown fallback。 |
+| 离线 `maintenance` job | consolidate 和 shutdown-queue drain 可以在交互 turn 之外执行。 |
+| 有预算的 Preflight | QueryIntent、sidecar query、cache 和 fallback 都在明确延迟边界内运行。 |
 
 ### 🏗️ 架构
 
@@ -215,6 +222,28 @@ Sidecar 结果
 | Shutdown Queue | `session_shutdown` + `pi-memory maintenance` | 仅离线且无 compaction summary 时 | shutdown 时不阻塞 | 补捞短 session 或漏处理事实 |
 | Consolidate | overflow >= 12、7 天或每日 cron | 可选 | 离线或后台 | 去重、合并、清理过期 TODO |
 
+### 🛡️ 脱敏覆盖范围
+
+`pi-memory` 0.3.0 会在长期记忆写入前脱敏疑似 secret。所有能持久化到 `MEMORY.md`、`auto-*.md` 或派生向量索引的增量写入路径都会应用这个规则。
+
+覆盖的写入路径：
+
+- `/remember`
+- `append` / `appendUser` / `appendIfAbsent` / `appendMany`
+- compaction `Memory Export` ingest
+- shutdown queue drain ingest
+
+当前 MVP 聚焦 **secret 和 token**，包括常见 API key、Bearer/JWT、私钥块、service account JSON、连接串、Basic Auth URL 和 `.env` 风格的 secret 赋值。命中内容会替换为 `[REDACTED]`；如果脱敏后没有有意义内容，该条 memory 会被跳过，而不是写入一个孤立占位符。
+
+当前边界：
+
+- 脱敏作用于**长期记忆条目**，不扫描完整 Pi session JSONL 或 LLM 请求体。
+- 已存在的历史 `MEMORY.md` 内容不会被自动重写。
+- 0.3.0 暂不做 PII 检测。
+- Debug 日志只记录命中数量和 policy version，不打印命中的 secret 原文。
+
+对贡献者来说，共用写入闸口是 `prepareEntryForWrite`。
+
 ## 💾 数据和 MEMORY.md 格式
 
 所有产物都放在同一个 memory agent directory 下。
@@ -235,6 +264,10 @@ Sidecar 结果
 | `.memory_shutdown_processed.json` | drain 幂等状态 |
 | `memory.vec.sqlite` | 派生向量索引 |
 | `memory.sock` | Sidecar UDS socket |
+| `logs/maintenance.log` | 定时 `maintenance --cron` 的 stdout 日志 |
+| `logs/maintenance.err.log` | 定时 maintenance 的 stderr 日志（launchd / Windows） |
+
+`logs/` 会在 **extension `session_start`**、`pi-memory init`、或 CLI `maintenance`/`consolidate` 时自动创建，无需手动 `mkdir`。
 
 标准模板：[`templates/MEMORY.md.example`](../templates/MEMORY.md.example)
 
@@ -291,6 +324,7 @@ Sidecar 结果
 | `PI_MEMORY_MIN_RELEVANCE` | `0.4` | 最小 cosine similarity |
 | `PI_MEMORY_CHUNK_MAX_CHARS` | `512` | 索引长条目拆分阈值；`0` 表示关闭 |
 | `PI_MEMORY_DEBUG` | 未设置 | `1` 打印 debug timing logs |
+| `PI_MEMORY_SKIP_SCHEDULER_SYNC` | 未设置 | 设置为 `1` 时跳过 scheduler sync，包括自动 sync 和手动 `scheduler sync` |
 
 完整列表见 [`.env.example`](../.env.example)。
 
@@ -329,12 +363,25 @@ pi-memory init   # 可选 — 安装后 + 首次 session 通常已自动完成
 consolidate -> drain-shutdown-queue
 ```
 
-调度模板：
+**macOS launchd 会自动管理**：`postinstall`、`pi-memory init`、以及 Pi **每次 `session_start`** 都会 best-effort 调用 `scheduler sync`（失败不影响安装或会话），写入 `~/Library/LaunchAgents/com.pi.memory.maintenance.plist`，并移除旧 label（如 `dev.pi.memory-consolidate`）。一般无需手动改 plist。
 
-- [`templates/com.pi.memory.consolidate.plist.example`](../templates/com.pi.memory.consolidate.plist.example)
+手动触发或排查：
+
+```bash
+pi-memory scheduler sync --verbose
+```
+
+如果环境里设置了 `PI_MEMORY_SKIP_SCHEDULER_SYNC=1`，手动 sync 前需要先取消该变量。
+
+Linux / Windows 仍参考模板手动安装：
+
 - [`templates/crontab.example`](../templates/crontab.example)
 - [`templates/consolidate.cmd.example`](../templates/consolidate.cmd.example)
 - [`templates/schtasks.example.txt`](../templates/schtasks.example.txt)
+
+macOS 参考 plist（内容与自动生成一致）：
+
+- [`templates/com.pi.memory.consolidate.plist.example`](../templates/com.pi.memory.consolidate.plist.example)
 
 ## 🩺 诊断
 

@@ -9,29 +9,37 @@
   <a href="doc/README-zh.md">简体中文</a>
 </p>
 
-Cross-session episodic memory for the [Pi coding agent](https://pi.dev).
+Local memory for the [Pi coding agent](https://pi.dev), so Pi can remember your preferences, project conventions, decisions, and open todos across sessions.
 
-`pi-memory` gives Pi a local, auditable memory layer across sessions. It keeps durable facts in **`MEMORY.md` as the source of truth**, derives a vector index in `memory.vec.sqlite`, and injects relevant private context through Preflight before the main model answers.
+`pi-memory` keeps long-lived notes in local Markdown, recalls the relevant ones before Pi answers, and redacts common secrets before they are saved. The goal is simple: a new Pi session should start with the context you meant it to remember, without turning memory into an opaque hosted service.
 
 ## 🧠 What It Does
 
-Pi already has compaction for long sessions. That solves "this conversation is too long"; it does not solve "a new session forgot my preferences, project conventions, prior decisions, and unresolved todos."
+Pi already has compaction for long sessions. That helps continue a long conversation; it does not make a future session remember your stable preferences, project rules, prior decisions, or unresolved todos.
 
 `pi-memory` fills that gap:
 
 ```text
-durable facts -> MEMORY.md -> derived vector index -> per-turn Preflight recall
+things worth remembering -> local Markdown memory -> private context for future turns
 ```
 
 It provides:
 
-- ✍️ **Explicit memory** through `/remember`.
-- 🔁 **Automatic durable fact export** from Pi compaction.
-- 📥 **Shutdown queue recovery** for short or missed sessions.
-- 🔦 **Per-turn private recall** before the main model runs.
-- 📄 **Human-editable storage** in Markdown, with vector search as a rebuildable index.
-- 🔌 **Local UDS sidecar** for vector retrieval and reindexing, without opening an HTTP port.
-- ⏳ **Daemon-friendly maintenance**: shutdown enqueues metadata, while consolidation and queue draining can run offline.
+- ✍️ **Save explicit notes** with `/remember`.
+- 🔁 **Carry durable facts forward** from Pi compaction.
+- 📥 **Recover useful facts from short sessions** with shutdown queue draining.
+- 🔦 **Recall relevant memory before each answer**, privately and automatically.
+- 🛡️ **Redact common secrets and tokens before saving memory**.
+- 📄 **Keep memory inspectable and editable** in Markdown.
+- ☂️ **Degrade gracefully** when recall is unavailable, so Pi can keep working.
+- ⏳ **Keep maintenance out of the interactive turn** with offline cleanup jobs.
+
+## 🚀 What's New in 0.3.0
+
+- **Safer memory writes**: common API keys, bearer tokens, private keys, service-account JSON, connection URLs, and `.env`-style secrets are redacted before memory is saved.
+- **More reliable recall**: when a Pi turn is cancelled, memory lookup is cancelled with it instead of waiting for an internal timeout.
+- **Clearer status and maintenance output**: `/memory-status`, `pi-memory status`, queue draining, and reindex triggers now report more consistent counts.
+- **Healthier foundation for future releases**: internals were simplified and split into smaller pieces. This is mostly a maintainer-facing change, but it reduces the risk of future feature work.
 
 ## 📦 Installation
 
@@ -70,12 +78,12 @@ Published npm packages ship precompiled `dist/`; `pi install npm:@chendpoc/pi-me
 
 ### 🌱 Memory workspace (automatic)
 
-You usually **do not need to run `pi-memory init` manually**. The same bootstrap (`initializeMemoryWorkspace`) runs automatically and **never overwrites a non-empty `MEMORY.md`**:
+You usually **do not need to run `pi-memory init` manually**. The memory workspace is prepared automatically and **never overwrites a non-empty `MEMORY.md`**:
 
 | When | What happens |
 | --- | --- |
 | **`pnpm install`** | `postinstall` runs `pi-memory init` (or a pre-build fallback) |
-| **First Pi session** | `session_start` → `MemoryStore.ensureInitialized()` |
+| **First Pi session** | Pi verifies or creates the memory workspace |
 | **Manual (optional)** | `pi-memory init` |
 
 Run `pi-memory init` explicitly only when:
@@ -97,43 +105,30 @@ pi-memory init   # optional; see above
 | New session asks "continue the plan from last time" | Agent has to ask for context or guess from the current repo. | Preflight recalls matching `MEMORY.md` facts and injects private reference context. |
 | User says "remember that this repo uses Vitest" | The fact may stay only in the current session summary. | `/remember` writes a `[user]` entry that consolidate must preserve. |
 | Long session compacts | Compaction helps continue that session but does not create durable cross-session facts. | One dual-purpose compact summary keeps session context and exports durable facts. |
-| Subagent is spawned | It may over-recall or duplicate the parent session's memory writes. | Subagents get Memory Cap only and write Compact Delta facts. |
-| Vector sidecar is down | A hard dependency would break the turn. | Preflight silently falls back to Markdown or injects nothing; the model still runs. |
+| Subagent is spawned | It may inherit too much context or duplicate the parent session's memory writes. | Subagents receive a smaller scoped memory view by default, reducing noise and duplicate writes. |
+| Memory recall is unavailable | A hard dependency would break the turn. | Pi falls back to Markdown or no memory injection; the model still runs. |
 | Memory grows | A file can become noisy and unbounded. | 150-line `MEMORY.md` cap, `auto-*.md` overflow, consolidate merge/dedupe. |
 
 ### 🌟 Key Advantages
 
-- 📓 **Markdown Ground Truth**: `MEMORY.md` and `auto-*.md` can be opened, reviewed, edited, grepped, copied, or versioned.
-- 🏗️ **Derived index, not hidden state**: `memory.vec.sqlite` can be deleted and rebuilt from Markdown.
-- 🔎 **Preflight recall**: Memory is injected before the main model answers instead of hoping the model calls a search tool.
-- ⏱️ **Hot-path budget**: Default Preflight budget is **800ms**, with QueryIntent, sidecar query, and fallback all bounded.
-- 🔒 **Protected user notes**: `/remember` writes `[user]` entries that consolidate must not remove or rewrite.
-- 🛡️ **Secret redaction on write**: API keys and tokens are stripped at the `prepareEntryForWrite` gate before they reach `MEMORY.md` or the vector index.
-- 🔗 **UDS, not HTTP**: the agent talks to the sidecar over `node:net` Unix domain sockets with JSONL frames, so there is no local HTTP server or port to secure.
-- 🏭 **Sidecar process isolation**: embedding, vector scan, MMR, stats, and reindex run in a spawned Node process, while writes stay owned by `MemoryStore`.
-- 💤 **Daemon-safe writes**: `session_shutdown` only appends metadata; heavier consolidation and shutdown-queue draining are intended for `pi-memory maintenance` or background scheduling.
-- 👥 **Subagent policy**: root sessions get Memory Cap + Episodic Preflight; subagents get Memory Cap only by default.
-- ☂️ **Graceful fallback**: if sidecar recall is empty, timed out, or unavailable, the turn still runs.
-
-### ⚙️ Runtime Choices
-
-| Choice | Why it matters |
-| --- | --- |
-| `MEMORY.md` as Ground Truth | Durable memory remains inspectable and editable instead of becoming opaque database state. |
-| UDS JSONL over `node:net` | Local IPC stays private to the machine, avoids HTTP ports, and keeps request/response framing simple. |
-| Spawned sidecar process | Vector query/reindex work is isolated from the Pi extension process; failures degrade to Markdown fallback. |
-| Offline `maintenance` job | Consolidation and shutdown-queue draining can run outside the interactive agent turn. |
-| Bounded Preflight | QueryIntent, sidecar query, cache, and fallback all share a tight latency budget. |
+- 📓 **Auditable memory**: `MEMORY.md` and `auto-*.md` can be opened, reviewed, edited, grepped, copied, or versioned.
+- 🔎 **Context appears before the answer**: Pi gets relevant private memory before the main model responds, so you do not have to manually paste old context.
+- 🔒 **User notes stay protected**: `/remember` entries are marked as user-authored and consolidation must preserve them.
+- 🛡️ **Safer by default**: common secrets and tokens are replaced before they reach durable memory.
+- ☂️ **No hard dependency on recall**: if memory recall is empty, slow, or unavailable, the turn still runs.
+- 💤 **Less interruption**: heavier cleanup runs through maintenance jobs instead of blocking ordinary Pi turns.
+- 🧹 **Bounded growth**: the main memory file stays capped, overflow goes into reviewable files, and consolidation merges duplicates.
+- 👥 **Subagent-aware behavior**: root sessions get fuller recall; subagents use a smaller memory view by default to reduce noise.
 
 ### ⚖️ Comparison
 
-`pi-memory` is not trying to be every memory system. The value is a specific Pi-native loop: Markdown ground truth, Preflight injection, sidecar retrieval, compaction export, and offline maintenance.
+`pi-memory` is not trying to be every memory system. The value is a specific Pi-native loop: local Markdown memory, private recall before answers, compaction export, and offline maintenance.
 
 | System | Strength | Difference From `@chendpoc/pi-memory` |
 | --- | --- | --- |
-| Cursor Rules / OpenCode `AGENTS.md` | Static project instructions, predictable injection. | Mostly user-authored rules; no automatic durable fact extraction or per-turn episodic Preflight. |
-| Claude Code Auto Memory | Agent can write local memory files. | File-based memory, but no sidecar vector recall or Pi compact/shutdown integration. |
-| `pi-hermes-memory` | Rich Pi package with FTS5, failure memory, correction learning, security scanning. | More automated and feature-heavy; no `<private_memory>` Preflight loop or sidecar-derived vector index. |
+| Cursor Rules / OpenCode `AGENTS.md` | Static project instructions, predictable injection. | Mostly user-authored rules; no automatic durable fact extraction or memory recall before every answer. |
+| Claude Code Auto Memory | Agent can write local memory files. | File-based memory, but no Pi-specific compaction/shutdown integration or private recall-before-answer loop. |
+| `pi-hermes-memory` | Rich Pi package with FTS5, failure memory, correction learning, security scanning. | More automated and feature-heavy; `pi-memory` is narrower, more Markdown-first, and focused on private pre-answer recall. |
 | OpenClaw memory-core | Mature file + index design, dreaming, hybrid search, local embeddings. | Broader memory platform; `pi-memory` is narrower and Pi-extension focused. |
 | Mem0 / Zep | Managed memory APIs with hybrid search, graph, temporal modeling. | Stronger retrieval infrastructure, but external service/database oriented and not Markdown-ground-truth first. |
 | Letta | Context engineering with git-backed memory repos and sleep-time compute. | Powerful for autonomous memory management; heavier mental model than Pi's extension lifecycle. |
@@ -148,6 +143,18 @@ Where other systems are stronger:
 - Letta: autonomous context repositories and sleep-time memory work.
 
 ## ⚙️ How It Works
+
+### ⚙️ Technical Notes
+
+These choices are mainly useful for operators and contributors. They explain how the user-facing behavior stays local, inspectable, and bounded.
+
+| Choice | Why it matters |
+| --- | --- |
+| `MEMORY.md` as Ground Truth | Durable memory remains inspectable and editable instead of becoming opaque database state. |
+| UDS JSONL over `node:net` | Local IPC stays private to the machine, avoids HTTP ports, and keeps request/response framing simple. |
+| Spawned sidecar process | Vector query/reindex work is isolated from the Pi extension process; failures degrade to Markdown fallback. |
+| Offline `maintenance` job | Consolidation and shutdown-queue draining can run outside the interactive agent turn. |
+| Bounded Preflight | QueryIntent, sidecar query, cache, and fallback all share a tight latency budget. |
 
 ### 🏗️ Architecture
 
@@ -215,6 +222,28 @@ Sidecar results
 | Shutdown Queue | `session_shutdown` + `pi-memory maintenance` | Only offline, when no compaction summary exists | No during shutdown | Recover facts from short or missed sessions |
 | Consolidate | overflow >= 12, 7 days, or daily cron | Optional | Offline/background | Dedupe, merge, prune obsolete todos |
 
+### 🛡️ What Redaction Covers
+
+`pi-memory` 0.3.0 redacts likely secrets before durable memory entries are written. This applies to every incremental write path that can persist to `MEMORY.md`, `auto-*.md`, or the derived vector index.
+
+Covered write paths:
+
+- `/remember`
+- `append` / `appendUser` / `appendIfAbsent` / `appendMany`
+- compaction `Memory Export` ingest
+- shutdown queue drain ingest
+
+The MVP focuses on **secrets and tokens**, including common API keys, bearer/JWT values, private-key blocks, service-account JSON, connection URLs, basic-auth URLs, and `.env`-style secret assignments. Matches are replaced with `[REDACTED]`; if nothing meaningful remains after redaction, the memory write is skipped instead of persisting a lone placeholder.
+
+Current boundaries:
+
+- Redaction is applied to **durable memory entries**, not full Pi session JSONL or LLM request bodies.
+- Existing historical `MEMORY.md` content is not rewritten automatically.
+- PII detection is intentionally out of scope for 0.3.0.
+- Debug logs report hit counts and policy version only; they do not print matched secret material.
+
+For contributors, the shared write gate is `prepareEntryForWrite`.
+
 ## 💾 Data And Memory Format
 
 All artifacts live under one memory agent directory.
@@ -235,6 +264,10 @@ Resolution order:
 | `.memory_shutdown_processed.json` | Drain idempotency state |
 | `memory.vec.sqlite` | Derived Vector Index |
 | `memory.sock` | Sidecar Unix domain socket |
+| `logs/maintenance.log` | Scheduled `maintenance --cron` stdout log |
+| `logs/maintenance.err.log` | Scheduled maintenance stderr log (launchd / Windows) |
+
+The `logs/` directory is created automatically on **extension `session_start`**, `pi-memory init`, or CLI `maintenance`/`consolidate` — no manual `mkdir` required.
 
 Canonical scaffold: [`templates/MEMORY.md.example`](./templates/MEMORY.md.example)
 
@@ -291,6 +324,7 @@ Common variables:
 | `PI_MEMORY_MIN_RELEVANCE` | `0.4` | Minimum cosine similarity |
 | `PI_MEMORY_CHUNK_MAX_CHARS` | `512` | Split long entries for indexing; `0` disables |
 | `PI_MEMORY_DEBUG` | unset | `1` prints debug timing logs |
+| `PI_MEMORY_SKIP_SCHEDULER_SYNC` | unset | `1` skips scheduler sync while set, including automatic sync and manual `scheduler sync` |
 
 See [`.env.example`](./.env.example) for the full list.
 
@@ -329,12 +363,25 @@ pi-memory init   # optional — usually automatic after install + first session
 consolidate -> drain-shutdown-queue
 ```
 
-Scheduler templates:
+**macOS launchd is managed automatically**: `postinstall`, `pi-memory init`, and every Pi **`session_start`** best-effort run `scheduler sync` (failures do not block install or sessions), writing `~/Library/LaunchAgents/com.pi.memory.maintenance.plist` and removing legacy labels (e.g. `dev.pi.memory-consolidate`). You usually do not edit plists by hand.
 
-- [`templates/com.pi.memory.consolidate.plist.example`](./templates/com.pi.memory.consolidate.plist.example)
+Manual trigger or troubleshooting:
+
+```bash
+pi-memory scheduler sync --verbose
+```
+
+If `PI_MEMORY_SKIP_SCHEDULER_SYNC=1` is set in the environment, unset it before running the manual sync command.
+
+Linux / Windows: install from templates manually:
+
 - [`templates/crontab.example`](./templates/crontab.example)
 - [`templates/consolidate.cmd.example`](./templates/consolidate.cmd.example)
 - [`templates/schtasks.example.txt`](./templates/schtasks.example.txt)
+
+macOS reference plist (matches auto-generated job):
+
+- [`templates/com.pi.memory.consolidate.plist.example`](./templates/com.pi.memory.consolidate.plist.example)
 
 ## 🩺 Diagnostics
 

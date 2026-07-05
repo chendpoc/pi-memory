@@ -14,19 +14,21 @@
 - 基于 UDS JSONL 的 Sidecar。
 - `memory.vec.sqlite` 向量索引。
 - QueryIntent + raw-query fallback。
-- 800ms 共享 Preflight 预算。
+- 800ms 共享 Preflight 预算，sidecar query 支持 AbortSignal 取消。
 - sidecar warm、intent cache、query cache。
 - dual-purpose compaction summary。
 - Shutdown Queue + `maintenance`。
 - Consolidate + reindex。
 - Subagent Memory Cap + Compact Delta。
+- Ground Truth 写入前 secret 脱敏（Path A）。
+- `MemoryRuntime` 扩展生命周期与重构后的 store/sidecar 模块。
 
 ## P0：信任与安全
 
 **目标版本：0.3.x** · [GitHub milestone](https://github.com/chendpoc/pi-memory/milestone/1)
 
-- 记忆写入前做 secret/token redaction（设计见 [`dev-doc/redaction-design.md`](../dev-doc/redaction-design.md)）。
-- 模块架构 refactor：去重 + MemoryStore 瘦身 + ingest 管道（计划见 [`dev-doc/architecture-refactor-plan.md`](../dev-doc/architecture-refactor-plan.md)）。
+- ✅ 记忆写入前做 secret/token redaction（设计见 [`dev-doc/redaction-design.md`](../dev-doc/redaction-design.md)）— **0.3.0 已交付**。
+- ✅ 模块架构 refactor：去重 + MemoryStore 瘦身 + ingest 管道（计划见 [`dev-doc/architecture-refactor-plan.md`](../dev-doc/architecture-refactor-plan.md)）— **0.3.0 已交付**。
 - 对 LLM 生成的 Memory Export 增加 prompt-injection 防护。
 - 针对用户明确纠正做 correction detector（设计见 [`dev-doc/remember-correction-design.md`](../dev-doc/remember-correction-design.md)；**scope 收窄为 `/remember` 链路，暂不实现**）。
 - 为跳过写入和 fallback 原因提供更好的诊断。

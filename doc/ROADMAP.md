@@ -14,19 +14,21 @@ This roadmap tracks product direction for `@chendpoc/pi-memory`. The README stay
 - Sidecar over UDS JSONL.
 - `memory.vec.sqlite` vector index.
 - QueryIntent with raw-query fallback.
-- 800ms shared Preflight budget.
+- 800ms shared Preflight budget with AbortSignal-aware sidecar query.
 - Warm sidecar, intent cache, query cache.
 - Dual-purpose compaction summary.
 - Shutdown Queue + `maintenance`.
 - Consolidate + reindex.
 - Subagent Memory Cap + Compact Delta.
+- Secret redaction before Ground Truth writes (Path A).
+- `MemoryRuntime` extension lifecycle and refactored store/sidecar modules.
 
 ## P0: Trust And Safety
 
 **Target: 0.3.x** · [GitHub milestone](https://github.com/chendpoc/pi-memory/milestone/1)
 
-- Secret and token redaction before memory writes (design: [`dev-doc/redaction-design.md`](../dev-doc/redaction-design.md)).
-- Module architecture refactor: dedupe shared logic, slim MemoryStore, unified ingest pipeline (plan: [`dev-doc/architecture-refactor-plan.md`](../dev-doc/architecture-refactor-plan.md)).
+- ✅ Secret and token redaction before memory writes (design: [`dev-doc/redaction-design.md`](../dev-doc/redaction-design.md)) — **shipped in 0.3.0**.
+- ✅ Module architecture refactor: dedupe shared logic, slim MemoryStore, unified ingest pipeline (plan: [`dev-doc/architecture-refactor-plan.md`](../dev-doc/architecture-refactor-plan.md)) — **shipped in 0.3.0**.
 - Prompt-injection guardrails for LLM-generated Memory Export.
 - Correction detector for explicit user corrections (design: [`dev-doc/remember-correction-design.md`](../dev-doc/remember-correction-design.md) — scoped to the `/remember` path; **not implemented yet**).
 - Better diagnostics for skipped writes and fallback reasons.

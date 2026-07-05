@@ -108,6 +108,7 @@ pi-memory init   # optional; see above
 - 🔎 **Preflight recall**: Memory is injected before the main model answers instead of hoping the model calls a search tool.
 - ⏱️ **Hot-path budget**: Default Preflight budget is **800ms**, with QueryIntent, sidecar query, and fallback all bounded.
 - 🔒 **Protected user notes**: `/remember` writes `[user]` entries that consolidate must not remove or rewrite.
+- 🛡️ **Secret redaction on write**: API keys and tokens are stripped at the `prepareEntryForWrite` gate before they reach `MEMORY.md` or the vector index.
 - 🔗 **UDS, not HTTP**: the agent talks to the sidecar over `node:net` Unix domain sockets with JSONL frames, so there is no local HTTP server or port to secure.
 - 🏭 **Sidecar process isolation**: embedding, vector scan, MMR, stats, and reindex run in a spawned Node process, while writes stay owned by `MemoryStore`.
 - 💤 **Daemon-safe writes**: `session_shutdown` only appends metadata; heavier consolidation and shutdown-queue draining are intended for `pi-memory maintenance` or background scheduling.
@@ -151,7 +152,7 @@ Where other systems are stronger:
 ### 🏗️ Architecture
 
 ```text
-Pi extension process
+Pi extension process (MemoryRuntime)
   |- session_start
   |    |- initialize MEMORY.md
   |    |- start/warm sidecar
@@ -159,7 +160,7 @@ Pi extension process
   |    `- preload Memory Cap
   |
   |- before_agent_start / context
-  |    `- Preflight recall -> <private_memory> injection
+  |    `- Preflight recall (AbortSignal-aware sidecar query) -> <private_memory>
   |
   |- /remember
   |    `- append [user] Memory Entry
@@ -389,6 +390,7 @@ The sidecar IPC test opens a Unix domain socket. If it fails with `listen EPERM`
 
 - [Chinese README](./doc/README-zh.md)
 - [Roadmap](./doc/ROADMAP.md)
+- [Architecture refactor plan](./dev-doc/architecture-refactor-plan.md)
 - [UBIQUITOUS_LANGUAGE.md](./UBIQUITOUS_LANGUAGE.md) - domain glossary
 
 ## 📜 License

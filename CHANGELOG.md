@@ -1,5 +1,20 @@
 # @chendpoc/pi-memory
 
+## 0.3.0
+
+### Minor Changes
+
+- Redact secrets and tokens before Ground Truth writes (Path A via `prepareEntryForWrite`).
+- Refactor extension lifecycle around `MemoryRuntime`; slim `MemoryStore` with `writePath`, `ingestEntries`, and consolidate decoupling.
+- Extract shared `status/` module for CLI and `/memory-status` TUI widget.
+- Split sidecar vec internals (`schema`, `chunkQuery`, `chunkReindex`, `embeddingCodec`) and `spawnLock`.
+
+### Patch Changes
+
+- Honour turn `AbortSignal` in sidecar IPC so cancelled Preflight queries do not wait for sidecar timeout.
+- Return actual write counts from `appendMany` so shutdown drain stats and reindex triggers stay accurate.
+- Replace `lodash` with `es-toolkit`.
+
 ## 0.2.4
 
 ### Breaking Changes

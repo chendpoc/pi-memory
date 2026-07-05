@@ -108,6 +108,7 @@ pi-memory init   # 可选；见上文
 - 🔎 **Preflight 召回**：记忆在主模型回答前注入，而不是依赖模型主动调用搜索工具。
 - ⏱️ **热路径有预算**：默认 Preflight 预算是 **800ms**，QueryIntent、sidecar query 和 fallback 都有边界。
 - 🔒 **用户显式记忆受保护**：`/remember` 写入 `[user]` 条目，consolidate 不能删除或改写。
+- 🛡️ **写入前脱敏**：API key 和 token 在 `prepareEntryForWrite` 闸口被替换，不会进入 `MEMORY.md` 或向量索引。
 - 🔗 **UDS，不走 HTTP**：agent 通过 `node:net` Unix domain socket + JSONL frame 和 sidecar 通信，不需要本地 HTTP server，也没有额外端口暴露。
 - 🏭 **Sidecar 进程隔离**：embedding、向量扫描、MMR、stats 和 reindex 在独立 spawn 的 Node 进程中运行；写入仍由 `MemoryStore` 负责。
 - 💤 **daemon-safe 写入路径**：`session_shutdown` 只追加元数据；更重的 consolidate 和 shutdown-queue drain 交给 `pi-memory maintenance` 或后台调度。
@@ -151,7 +152,7 @@ pi-memory init   # 可选；见上文
 ### 🏗️ 架构
 
 ```text
-Pi 扩展进程
+Pi 扩展进程（MemoryRuntime）
   |- session_start
   |    |- 初始化 MEMORY.md
   |    |- 启动/warm sidecar
@@ -159,7 +160,7 @@ Pi 扩展进程
   |    `- 预加载 Memory Cap
   |
   |- before_agent_start / context
-  |    `- Preflight recall -> <private_memory> 注入
+  |    `- Preflight recall（AbortSignal 感知 sidecar query）-> <private_memory> 注入
   |
   |- /remember
   |    `- 追加 [user] Memory Entry
@@ -389,6 +390,7 @@ sidecar IPC 测试会打开 Unix domain socket。如果在受限沙盒中因为 
 
 - [English README](../README.md)
 - [路线图](./ROADMAP-zh.md)
+- [架构 refactor 计划](../dev-doc/architecture-refactor-plan.md)
 - [UBIQUITOUS_LANGUAGE.md](../UBIQUITOUS_LANGUAGE.md) - 领域术语表
 
 ## 📜 许可证

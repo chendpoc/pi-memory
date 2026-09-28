@@ -84,3 +84,19 @@ export function writeEmbeddingMeta(db: VecDatabase, embedder: Embedder): void {
   upsert.run("embedding_provider", embedder.provider);
   upsert.run("embedding_dim", String(embedder.dim));
 }
+
+const LAST_REINDEX_FINGERPRINT_KEY = "last_reindex_fingerprint";
+
+export function getLastReindexFingerprint(db: VecDatabase): string | null {
+  const raw = db.prepare("SELECT value FROM meta WHERE key = ?").pluck().get(LAST_REINDEX_FINGERPRINT_KEY) as
+    | string
+    | undefined;
+  return raw ?? null;
+}
+
+export function setLastReindexFingerprint(db: VecDatabase, fingerprint: string): void {
+  db.prepare("INSERT INTO meta(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(
+    LAST_REINDEX_FINGERPRINT_KEY,
+    fingerprint,
+  );
+}

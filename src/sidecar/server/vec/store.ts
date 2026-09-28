@@ -9,8 +9,10 @@ import {
   embeddingMetaMatches,
   getChunkCount,
   getIndexGeneration,
+  getLastReindexFingerprint,
   getStoredEmbeddingMeta,
   initVecSchema,
+  setLastReindexFingerprint,
   type ReindexOutcome,
   type StoredEmbeddingMeta,
 } from "./schema.js";
@@ -39,6 +41,14 @@ export class VecStore {
 
   getIndexGeneration(): number {
     return getIndexGeneration(this.db);
+  }
+
+  getLastReindexFingerprint(): string | null {
+    return getLastReindexFingerprint(this.db);
+  }
+
+  setLastReindexFingerprint(fingerprint: string): void {
+    setLastReindexFingerprint(this.db, fingerprint);
   }
 
   getChunkCount(): number {

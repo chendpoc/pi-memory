@@ -35,6 +35,7 @@ export function buildConsolidateMergePrompt(entriesMarkdown: string): string {
 Merge the entries below:
 - Remove exact duplicates and near-duplicates (keep the clearer wording).
 - Remove completed or obsolete TODO items.
+- Superseded semantics: when a newer entry states X is done/decided/executed, rewrite older entries' stale tails about X (e.g. "X pending/未拍板/待拍板") to reflect the newer state; keep still-valid parts, stay concise.
 - NEVER remove or rewrite lines marked [user] (user-authored).
 - Keep Preferences, Conventions, Findings, and Todos factual and concise.
 - Output ONLY valid markdown with sections: ## Preferences, ## Conventions, ## Findings, ## Todos

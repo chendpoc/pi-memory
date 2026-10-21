@@ -36,6 +36,8 @@ export type EpisodicPreflightOptions = {
 
 export type EpisodicPreflightResult = {
   privateContext: string;
+  /** fallback 命中时 privateContext 实为 MEMORY.md 全文，与 sessionMemoryCap 同源——merge 层据此跳过以免双份注入。 */
+  usedFallback: boolean;
 };
 
 /**
@@ -139,7 +141,7 @@ export async function runEpisodicPreflight(
     });
 
     if (!privateContext.trim()) return null;
-    return { privateContext };
+    return { privateContext, usedFallback };
   } catch {
     debugMemory("preflight", "failed", { total_ms: nowMs() - startedAt });
     return null;

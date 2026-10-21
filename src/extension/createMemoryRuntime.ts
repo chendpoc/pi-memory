@@ -142,7 +142,9 @@ class MemoryRuntimeImpl implements MemoryRuntime {
         onProgress: workingUi?.update,
       });
 
-      const episodicContext = result?.privateContext ?? null;
+      // PATCH-H1 (2026-10-21): fallback 产物是 MEMORY.md 全文，与 sessionMemoryCap 同源——
+  // 不跳过的话同一份内容注入两遍（实测双 private_memory 块 ≈15K chars 重复）。
+  const episodicContext = result && !result.usedFallback ? (result.privateContext || null) : null;
       const combined = mergePrivateMemoryBlocks(this.sessionMemoryCap, episodicContext);
       this.turnPreflight = { userPayload, privateContext: combined ?? "" };
     } finally {
@@ -186,7 +188,10 @@ class MemoryRuntimeImpl implements MemoryRuntime {
           signal: ctx.signal,
         });
         privateContext =
-          mergePrivateMemoryBlocks(this.sessionMemoryCap, preflight?.privateContext) || undefined;
+          mergePrivateMemoryBlocks(
+            this.sessionMemoryCap,
+            preflight && !preflight.usedFallback ? preflight.privateContext : undefined,
+        ) || undefined;
         userPayload = scaffolded;
         this.turnPreflight = { userPayload: scaffolded, privateContext: privateContext ?? "" };
       }

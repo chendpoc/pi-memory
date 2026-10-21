@@ -46,7 +46,11 @@ export async function bootstrapSidecar(opts: {
     });
 
   const unsubSyncToSidecar = opts.store.onSyncToSidecar(() => reindexScheduler.schedule());
-  await reindexScheduler.runNow();
+  // Fire-and-forget: the initial runNow re-embeds the whole memory file when it
+  // changed, which with a remote embedder can take seconds. Session startup
+  // (session_start) must not block on it — preflight already falls back to
+  // MEMORY.md while the index is being rebuilt.
+  void reindexScheduler.runNow();
 
   return { reindexScheduler, unsubSyncToSidecar };
 }

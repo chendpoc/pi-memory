@@ -1,5 +1,12 @@
 # @chendpoc/pi-memory
 
+## 0.3.3
+
+### Patch Changes
+
+- Fix: skip episodic fallback result when it duplicates sessionMemoryCap — when the sidecar is unavailable, the episodic fallback injected a second copy of MEMORY.md alongside the cap (~15K chars duplicated in one request).
+- Consolidation merge prompt gains a superseded-semantics rule: stale tails in older entries get rewritten when a newer entry states the outcome (e.g. "pending" → done). [user]-authored lines remain untouchable.
+
 ## 0.3.2
 
 ### Patch Changes
